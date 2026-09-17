@@ -1,4 +1,4 @@
-import type { ActivateFrontend, MessageDecorationContext } from '@cockpit/module-api';
+import type { ActivateFrontend, MessageProps } from '@cockpit/module-api';
 import { identity, keyId, snapshotKeys } from '../shared/protocol.ts';
 import type { MessageKey, Snapshot } from '../shared/protocol.ts';
 import { DeviceBridge } from './device.ts';
@@ -13,16 +13,26 @@ const labels: Record<UnreadState['status'], string> = {
 };
 
 export const activate: ActivateFrontend = context => {
-  if (context.apiVersion !== 1 || context.uiVersion !== 1 || context.surfaceVersion !== 1 ||
-      !context.view || !context.onInvalidate || typeof context.createPortal !== 'function') {
-    throw new Error('未读通知需要宿主 Module UI / surface v1、view、onInvalidate 和 createPortal');
+  if (context.apiVersion !== 2 || context.uiVersion !== 1 || !context.state?.host ||
+      typeof context.state.register !== 'function' || !context.onInvalidate || typeof context.createPortal !== 'function') {
+    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1、state、onInvalidate 和 createPortal');
   }
   const React = context.react;
-  const device = new DeviceBridge(context);
-  const store = new UnreadStore({
-    request: context.request, report: context.report,
-    apply: (state, acknowledged) => device.apply(state, acknowledged),
+  const deviceState = context.state.register({
+    id: 'device-bridge',
+    create: () => new DeviceBridge(context),
+    dispose: device => device.dispose(),
   });
+  const unreadState = context.state.register({
+    id: 'unread-store',
+    create: () => new UnreadStore({
+      request: context.request, report: context.report,
+      apply: (state, acknowledged) => deviceState.get().apply(state, acknowledged),
+    }),
+    dispose: store => store.dispose(),
+  });
+  const device = deviceState.get();
+  const store = unreadState.get();
   let stopped = false;
   let modalOpen = false;
   let foreground = false;
@@ -34,7 +44,7 @@ export const activate: ActivateFrontend = context => {
   };
   const useUnread = () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const updateActivity = () => {
-    const view = context.view!.getSnapshot();
+    const view = context.state.host.getSnapshot();
     const activity = { ...view, visible: view.visible && document.visibilityState === 'visible',
       connected: view.connected && navigator.onLine !== false };
     store.setActivity(activity);
@@ -43,7 +53,7 @@ export const activate: ActivateFrontend = context => {
     foreground = next;
   };
   const onMessage = (event: MessageEvent) => { if (device.handleMessage(event)) store.refresh(); };
-  const unsubscribeView = context.view.subscribe(updateActivity);
+  const unsubscribeView = context.state.host.subscribe(updateActivity);
   const unsubscribeInvalidate = context.onInvalidate(store.refresh);
   document.addEventListener('visibilitychange', updateActivity);
   window.addEventListener('online', updateActivity);
@@ -52,9 +62,10 @@ export const activate: ActivateFrontend = context => {
   updateActivity();
   void device.bootstrap();
 
-  function Decoration(props: MessageDecorationContext) {
+  function useMarker(props: MessageProps) {
     const state = useUnread();
-    const key: MessageKey = { sessionId: props.sessionId, kind: props.kind === 'ask' ? 'ask' : 'reply', nativeId: props.id };
+    const message = props.identity;
+    const key: MessageKey = { sessionId: message.sessionId, kind: message.kind === 'ask' ? 'ask' : 'reply', nativeId: message.id };
     const id = keyId(key);
     const generation = state.snapshot?.generation ?? null;
     const transition = React.useRef({ id, complete: props.complete, fresh: false, generation });
@@ -65,13 +76,20 @@ export const activate: ActivateFrontend = context => {
     if (!transition.current.complete && props.complete) transition.current.fresh = true;
     transition.current.complete = props.complete;
     if (!transition.current.generation) transition.current.generation = generation;
-    const root = !props.agentId && (props.kind === 'ask' || props.role === 'assistant');
-    const valid = root && props.complete && identity(props.sessionId) && identity(props.id);
+    const root = !message.agentId && (message.kind === 'ask' || message.role === 'assistant');
+    const valid = root && props.complete && identity(message.sessionId) && identity(message.id);
     const known = valid && unread(state.snapshot, key);
-    const eligible = valid && (known || transition.current.fresh || props.kind === 'ask');
+    const eligible = valid && (known || transition.current.fresh || message.kind === 'ask');
+    const [element, setElement] = React.useState<HTMLDivElement | null>(null);
+    const bodyRef = React.useCallback((node: HTMLDivElement | null) => {
+      setElement(node);
+      if (typeof props.bodyRef === 'function') {
+        const cleanup = props.bodyRef(node);
+        if (typeof cleanup === 'function') return () => { setElement(null); cleanup(); };
+      } else if (props.bodyRef) props.bodyRef.current = node;
+    }, [props.bodyRef]);
     const [height, setHeight] = React.useState<number | null>(null);
     React.useLayoutEffect(() => {
-      const element = props.element;
       if (!known || !element) { setHeight(null); return; }
       const measure = () => setHeight(element.getBoundingClientRect().height);
       measure();
@@ -82,16 +100,17 @@ export const activate: ActivateFrontend = context => {
       }
       window.addEventListener('resize', measure);
       return () => window.removeEventListener('resize', measure);
-    }, [id, known, props.element]);
+    }, [id, known, element]);
     React.useEffect(() => {
-      if (!eligible || !props.element || !generation || !store.canPresent()) return;
-      return observeRead(props.element,
-        () => !stopped && !modalOpen && store.canPresent() && context.view!.getSnapshot().sessionId === props.sessionId &&
+      if (!eligible || !element || !generation || !store.canPresent()) return;
+      return observeRead(element,
+        () => !stopped && !modalOpen && store.canPresent() && context.state.host.getSnapshot().sessionId === message.sessionId &&
           store.getSnapshot().snapshot?.generation === generation,
         () => store.present(key, generation), 600);
-    }, [id, eligible, props.element, generation, state.status]);
-    return known ? <span className="cn-redline" role="img" aria-label={props.kind === 'ask' ? '未读提问' : '未读消息'}
-      style={height === null ? undefined : { height, bottom: 'auto' }} /> : null;
+    }, [id, eligible, element, generation, state.status]);
+    const marker = known ? <span className="cn-redline" role="img" aria-label={message.kind === 'ask' ? '未读提问' : '未读消息'}
+      style={{ margin: 0, ...(height === null ? {} : { height, bottom: 'auto' }) }} /> : null;
+    return { bodyRef, marker };
   }
 
   function SessionBadge({ sessionId }: { sessionId: string }) {
@@ -177,15 +196,23 @@ export const activate: ActivateFrontend = context => {
     window.removeEventListener('offline', updateActivity);
     navigator.serviceWorker?.removeEventListener('message', onMessage);
     context.signal.removeEventListener('abort', dispose);
-    store.dispose();
-    device.dispose();
   };
   context.signal.addEventListener('abort', dispose, { once: true });
   if (context.signal.aborted) dispose();
   return {
-    messageDecorations: [{ id: 'unread-marker', component: Decoration }],
-    sessionBadges: [{ id: 'unread-count', component: SessionBadge }],
-    globalActions: [{ id: 'notification-settings', component: GlobalAction }],
+    apiVersion: 2,
+    components: [
+      { id: 'unread-marker', boundary: 'message', wrap: Base => function UnreadMessage(props) {
+        const { bodyRef, marker } = useMarker(props);
+        return <Base {...props} bodyRef={bodyRef} adornment={marker ? <>{props.adornment}{marker}</> : props.adornment} />;
+      } },
+      { id: 'unread-count', boundary: 'sessionStatus', wrap: Base => function UnreadSessionStatus(props) {
+        return <Base {...props}>{props.children}<SessionBadge sessionId={props.sessionId} /></Base>;
+      } },
+      { id: 'notification-settings', boundary: 'globalActions', wrap: Base => function NotificationGlobalActions(props) {
+        return <Base {...props}>{props.children}<GlobalAction /></Base>;
+      } },
+    ],
     dispose,
   };
 };

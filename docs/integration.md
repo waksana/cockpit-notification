@@ -12,7 +12,8 @@
 | 逐消息未读记录、会话 U、全站 U | Notification 模块 |
 | 推送订阅、投递记录、通知与消息关联 | Notification 模块 |
 | Chat 正文渲染、分页与唯一滚动控制 | 本体 |
-| 通用消息标记、会话附加展示、导航能力 | 本体公开插口 |
+| 基础消息、会话状态、全局操作组件 | 本体公开组件契约 |
+| 注册 state 服务与组件 middleware | 本体统一 Web 运行时，业务实现属于模块 |
 | 标记何时出现、读后确认与通知策略 | 模块 |
 | Service Worker 的稳定 URL、资源校验和限定作用域 | 本体公开机制 |
 | worker 注册、更新、设备订阅和通知权限交互 | 模块；生命周期受浏览器规则约束 |
@@ -28,13 +29,16 @@
 - 模块命名空间 HTTP 路由、静态资源、错误报告和终止信号。
 - 已加载原生 session 的事件观察。
 - 共享 React、公共 Module UI v1 样式与通用 `createPortal`。
-- 输入区、文件输入和 Markdown link/image/attachment 渲染的通用机制仍保留。
+- 基础草稿 state 和组件；Markdown link/image 保留独立渲染注册，附件走组件 middleware。
 
 配套宿主新增通用接口，不包含未读账本或推送业务：
 
-- `surfaceVersion: 1` 与 `messageDecorations`，提供消息身份、完成状态及正文元素引用。
-- `sessionBadges` 与 `globalActions`，分别用于会话附加展示与全局操作。
-- `view` 提供当前会话、前后台和连接状态，`onInvalidate` 接收模块变化提示。
+- Web API v2：context 与返回声明都要求 `apiVersion: 2`，旧 Web 插口不保留兼容层。
+- `context.state.register` 注册已有 UnreadStore 与 DeviceBridge 等共享状态服务；
+  不按消息重复创建 store 或发 HTTP，不把未读写入本体原生数据。
+- `components` 注册 message/sessionStatus/globalActions middleware，
+  使用基础 props 的身份、完成事实、正文 bodyRef、children/adornment 组合原组件。
+- `context.state.host` 提供当前会话、前后台和连接状态；`onInvalidate` 接收既有模块变化提示。
 - 后端 `controlEvents` 观察已有会话控制投影；`invalidate()` 复用已有 SSE，
   不增加 graceful 等待。
 - manifest 声明 `frontend.worker`；宿主校验并服务稳定、窄作用域 worker 资源，
@@ -48,10 +52,13 @@
 本体给模块提供稳定的原生消息/宿主请求身份、当前 session 和必要呈现生命周期信息，
 让模块只关注自己尚未读的条目，不扫描完整历史，也不依赖正文私有选择器。
 
-红线挂在本体明确提供的消息边缘位置，不包裹或替换原有消息内容。
+红线作为真实 adornment 节点放在正文的现有呈现父节点中、与正文并列，
+使用外侧留白，不包裹或替换正文，也不改变 Markdown 首末子元素的排版。
 计数数字属于附加展示，不挤掉已有会话标题或原生待回答状态。
+Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占位容器。
+正文、卡片、输入框与 dialog 的视觉几何保持不变，原有 refs/children/actions 必须组合保留。
 
-模块依据公共元素引用观察真实裁剪、遮挡和稳定可见时间；宿主不决定“已读”。
+模块依据 message 的 bodyRef 观察真实裁剪、遮挡和稳定可见时间；宿主不决定“已读”。
 页面进入后台、组件卸载、路由变化会取消对应观察，不继续产生旧的可见确认。
 600ms 阅读阈值与 150ms 批量窗口均在模块内部，不硬编码进本体。
 

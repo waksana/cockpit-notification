@@ -1,9 +1,11 @@
 # 构建、配套宿主与安装
 
-**0.1.0 尚未发布。** 源码配套宿主包含 Module Surface v1、
-模块控制事件观察、invalidate 提示及窄作用域 worker 入口。
+**0.1.0 尚未发布。** 源码配套宿主要求 Web API v2 的 state 服务与组件 middleware；
+公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
 准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
 不能把旧的 0.2.x 包视为自动兼容。
+前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
+本次是明确的配套升级，不提供旧 Web 插口兼容层，不修改通知后端或 worker 协议。
 
 ## 从源码构建
 

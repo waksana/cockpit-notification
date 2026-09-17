@@ -18,8 +18,13 @@
 | 最终回复 | 采用用户确认的结构兼容判定，见下节，不按文字关键词 |
 | 推送 | 模块后端调用标准 Web Push；等待窗口默认 3000ms，已核销的不再发送 |
 | 设备配置 | VAPID 和推送订阅与未读账本分开保存，私有模块数据目录 |
-| UI | 消息外侧装饰、会话数字、全局通知设置操作；复用公共 UI v1 |
+| UI | Web API v2 state 注册与 message/sessionStatus/globalActions middleware；公共 UI v1 不变 |
 | worker | 模块专属稳定 URL，narrow scope，不控制 Chat、不开离线缓存 |
+
+Web state 服务复用既有未读和设备逻辑，HTTP、版本与批量核销仍由模块管理。
+组件增强只观察、展示并调用 state actions，不新增 HTML 包装或空占位容器。
+消息完整性仍来自宿主真实呈现事实，组件组合不能把流式片段提前当成已读。
+本次 Web 契约迁移不改变后端分类/账本/推送或 worker 的消息与存储协议。
 
 ## 最终回复的兼容判定
 

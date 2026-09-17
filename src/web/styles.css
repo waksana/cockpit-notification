@@ -2,7 +2,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
+  left: -8px;
   width: 2px;
   min-height: 12px;
   background: var(--ck-color-danger);
