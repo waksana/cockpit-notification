@@ -506,6 +506,8 @@ test('sidebar badge is noninteractive, total comes from snapshot, and settings u
   assert.equal(portal.type, 'portal');
   const dialog = (portal.props.children as Element[])[0]!;
   assert.equal(dialog.type, 'dialog');
+  assert.equal(dialog.props.onCancel, undefined, 'Escape uses native dialog close and focus restoration before unmount');
+  assert.equal(typeof dialog.props.onClose, 'function');
 });
 
 test('management middleware retains the actual header props and existing actions without a substitute slot', async t => {

@@ -138,9 +138,10 @@ export const activate: ActivateFrontend = context => {
     }, []);
     const permission = { default: '尚未询问', granted: '已允许', denied: '已拒绝', unsupported: '不支持' }[status.permission];
     return context.createPortal(<dialog ref={dialog} className="cn-dialog" aria-labelledby={heading}
-      onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
+      onClose={close} onClick={event => { if (event.target === event.currentTarget) event.currentTarget.close(); }}>
       <section className="cn-settings">
-        <header><h2 id={heading}>未读与系统通知</h2><button className="ck-button" type="button" onClick={close} aria-label="关闭通知设置">关闭</button></header>
+        <header><h2 id={heading}>未读与系统通知</h2><button className="ck-button" type="button"
+          onClick={() => dialog.current?.close()} aria-label="关闭通知设置">关闭</button></header>
         <p role="status">未读：{state.snapshot ? state.snapshot.total : '未知'} · {labels[state.status]}
           {state.pending > 0 ? ` · ${state.pending} 条阅读待确认` : ''}</p>
         {state.error && <p className="cn-error" role="alert">{state.error}</p>}

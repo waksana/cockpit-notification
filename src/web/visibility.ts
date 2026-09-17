@@ -2,11 +2,12 @@ export interface Rectangle { top: number; bottom: number; left: number; right: n
 export function visibleRegion(rect: Rectangle, intersection: Rectangle,
   viewport: { top: number; left: number; height: number; width: number }): Rectangle | null {
   if (rect.height <= 0 || rect.width <= 0 || intersection.width < rect.width - 1 ||
-      rect.left < viewport.left || rect.right > viewport.left + viewport.width ||
-      rect.bottom > viewport.top + viewport.height || rect.bottom <= viewport.top) return null;
+      rect.left < viewport.left - 1 || rect.right > viewport.left + viewport.width + 1 ||
+      rect.bottom > viewport.top + viewport.height + 1 || rect.bottom <= viewport.top) return null;
   const long = rect.height > viewport.height;
   const top = long ? Math.max(rect.top, rect.bottom - Math.min(48, viewport.height)) : rect.top;
-  if (top < viewport.top || intersection.top > top + 1 || intersection.bottom < rect.bottom - 1) return null;
+  // clientWidth/clientHeight round to integers while DOMRect preserves subpixels.
+  if (top < viewport.top - 1 || intersection.top > top + 1 || intersection.bottom < rect.bottom - 1) return null;
   return { top, bottom: rect.bottom, left: rect.left, right: rect.right,
     width: rect.width, height: rect.bottom - top };
 }

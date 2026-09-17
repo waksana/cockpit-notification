@@ -31,3 +31,10 @@ test('a long message requires its final visible region, within the actual scroll
   const panel = { ...viewport, top: 100, height: 300 };
   assert.deepEqual(visibleRegion(rect(-300, 350), rect(100, 350), panel), rect(302, 350));
 });
+
+test('rounded client dimensions do not make a flush subpixel message permanently unread', () => {
+  const panel = { top: 56, left: 0, height: 645, width: 390 };
+  const message = rect(674.03125, 701.21875, 12, 378);
+  assert.deepEqual(visibleRegion(message, rect(message.top, 701, 12, 378), panel), message);
+  assert.equal(visibleRegion(rect(674, 703, 12, 378), rect(674, 701, 12, 378), panel), null);
+});
