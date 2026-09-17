@@ -139,7 +139,9 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
       route('GET', '/subscriptions/:id', request =>
         ({ body: { registered: store.registered(deviceId(request), clock.now()) } })),
       route('DELETE', '/subscriptions/:id', request => {
-        store.remove(deviceId(request));
+        const id = deviceId(request);
+        store.remove(id);
+        pushes.cancelSubscription(id);
         return { status: 204 };
       }),
     ],

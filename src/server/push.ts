@@ -132,6 +132,12 @@ export class PushScheduler {
     this.#plans.delete(keyId(key));
   }
 
+  cancelSubscription(id: string): void {
+    for (const plan of this.#plans.values()) {
+      if (plan.attempts.get(id) === 'READY') plan.attempts.set(id, 'CANCELLED');
+    }
+  }
+
   inspect(key: MessageKey): { state: Plan['state']; attempts: Record<string, Attempt> } | undefined {
     const plan = this.#plans.get(keyId(key));
     return plan ? { state: plan.state, attempts: Object.fromEntries(plan.attempts) } : undefined;

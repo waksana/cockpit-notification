@@ -163,6 +163,33 @@ test('no targets at due time means no backfill after device registration', async
   assert.equal(sends, 1);
 });
 
+test('DELETE then re-registering the same endpoint cannot revive queued delivery attempts', async t => {
+  const sent: NotificationPayload[] = [];
+  const pending: (() => void)[] = [];
+  const f = fixture(t, async (_device, payload) => {
+    sent.push(payload);
+    return new Promise(resolve => { pending.push(() => resolve('ACCEPTED')); });
+  });
+  const device = subscription();
+  const registration = await invoke(f.backend, 'POST', '/subscriptions', { subscription: device });
+  const { id } = registration.body as { id: string };
+  for (let index = 0; index < 6; index++) await f.emit(turn(`queued-${index}`));
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 4);
+  assert.equal((await invoke(f.backend, 'DELETE', '/subscriptions/:id', undefined, { id })).status, 204);
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: device });
+  for (const complete of pending.splice(0)) complete();
+  await flush();
+  assert.equal(sent.length, 4);
+  await f.emit(turn('after-reenable'));
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 5);
+  assert.equal(sent[4]!.key.nativeId, 'after-reenable');
+  assert.equal((await f.state()).total, 7);
+  for (const complete of pending.splice(0)) complete();
+  await flush();
+});
+
 test('READ during first send stops unsent devices; started completion cannot resurrect entry', async t => {
   let complete!: (value: SendOutcome) => void;
   let sends = 0;

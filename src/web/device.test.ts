@@ -148,6 +148,84 @@ test('activation bootstrap inspects an installed worker without permission, regi
   assert.equal(f.updates(), 1);
 });
 
+for (const operation of ['enable', 'disable'] as const) {
+  test(`a late bootstrap subscription response cannot overwrite successful ${operation}`, async t => {
+    const f = fixture(t);
+    f.setSubscription(f.createSubscription());
+    f.setRegistered(operation === 'disable');
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const request = f.context.request;
+    f.context.request = async (path, init) => {
+      const response = await request(path, init);
+      if (!init?.method || init.method === 'GET') { entered(); await gate; }
+      return response;
+    };
+    const bootstrapping = f.bridge.bootstrap();
+    await started;
+    await f.bridge[operation]();
+    const after = f.bridge.getSnapshot();
+    assert.equal(after.registered, operation === 'enable');
+    assert.equal(after.subscribed, operation === 'enable');
+    release();
+    await bootstrapping;
+    assert.deepEqual(f.bridge.getSnapshot(), after);
+  });
+}
+
+test('late worker lookup cannot detach a registration installed by explicit enable', async t => {
+  const f = fixture(t);
+  f.setInstalled(false);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let first = true;
+  const lookup = navigator.serviceWorker.getRegistration.bind(navigator.serviceWorker);
+  navigator.serviceWorker.getRegistration = async clientURL => {
+    const blocked = first;
+    first = false;
+    const result = await lookup(clientURL);
+    if (blocked) await gate;
+    return result;
+  };
+  const bootstrapping = f.bridge.bootstrap();
+  await f.bridge.enable();
+  release();
+  await bootstrapping;
+  assert.equal(f.bridge.getSnapshot().installed, true);
+  assert.equal(f.bridge.getSnapshot().registered, true);
+  await f.bridge.disable();
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.equal(f.requests.at(-1)?.init?.method, 'DELETE');
+});
+
+test('an obsolete subscription lookup failure cannot replace the successful mutation status', async t => {
+  const f = fixture(t);
+  f.setSubscription(f.createSubscription());
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const request = f.context.request;
+  f.context.request = async (path, init) => {
+    if (!init?.method || init.method === 'GET') {
+      entered();
+      await gate;
+      return Response.json({ code: 'SYNTHETIC_ERROR', message: 'obsolete lookup' }, { status: 503 });
+    }
+    return request(path, init);
+  };
+  const bootstrapping = f.bridge.bootstrap();
+  await started;
+  await f.bridge.enable();
+  release();
+  await bootstrapping;
+  assert.equal(f.bridge.getSnapshot().registered, true);
+  assert.equal(f.bridge.getSnapshot().error, null);
+  assert.deepEqual(f.errors, []);
+});
+
 test('installed worker updates on next use, exposes waiting activation and reapplies state after activation', async t => {
   const f = fixture(t);
   await f.bridge.bootstrap();

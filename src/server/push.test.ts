@@ -215,3 +215,36 @@ test('STOP releases queued sends, aborts active ones, and late results cannot st
   assert.deepEqual(errors, []);
   assert.equal(ledger.get(entries[0]!.key), undefined);
 });
+
+test('subscription cancellation is terminal for READY attempts without cancelling other devices', async t => {
+  const store = new SubscriptionStore(directory(t), settings({}));
+  const clock = new FakeClock();
+  const first = subscription('first');
+  const firstId = store.register(first, clock.now());
+  const secondId = store.register(subscription('second'), clock.now());
+  const ledger = new Ledger();
+  const sent: { id: string; message: string }[] = [];
+  const pending: (() => void)[] = [];
+  const scheduler = new PushScheduler(ledger, store, clock, async (device, payload) => {
+    sent.push({ id: device.id, message: payload.key.nativeId });
+    return new Promise(resolve => { pending.push(() => resolve('ACCEPTED')); });
+  }, 3000, () => {});
+  t.after(() => scheduler.stop());
+  const entries = ledger.transition(Array.from({ length: 5 }, (_, index) => key(`message-${index}`))).added;
+  for (const entry of entries) scheduler.schedule(entry);
+  await clock.advance(3000);
+  assert.equal(sent.length, 4);
+  assert.equal(scheduler.inspect(entries[4]!.key)!.attempts[firstId], 'READY');
+  store.remove(firstId);
+  scheduler.cancelSubscription(firstId);
+  assert.equal(scheduler.inspect(entries[4]!.key)!.attempts[firstId], 'CANCELLED');
+  assert.equal(store.register(first, clock.now()), firstId);
+  for (let batch = 0; batch < 8 && pending.length; batch++) {
+    for (const complete of pending.splice(0)) complete();
+    await flush();
+  }
+  assert.equal(sent.filter(send => send.id === firstId).length, 4);
+  assert.equal(sent.filter(send => send.id === secondId).length, 5);
+  assert.equal(scheduler.inspect(entries[4]!.key)!.attempts[firstId], 'CANCELLED');
+  assert.equal(ledger.snapshot().total, 5);
+});

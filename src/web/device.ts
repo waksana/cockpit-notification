@@ -44,6 +44,7 @@ export class DeviceBridge {
   private latest: Snapshot | null = null;
   private initializing = true;
   private busy = false;
+  private subscriptionEpoch = 0;
   private controller = new AbortController();
   private updateFlight: Promise<void> | null = null;
   private registrationCleanup: (() => void)[] = [];
@@ -145,14 +146,20 @@ export class DeviceBridge {
     try { await this.updateRegistration(); await this.resumeState(); }
     catch (error) { this.fail(error); }
   }
-  private async checkSubscription(registration: ServiceWorkerRegistration) {
+  private subscriptionCurrent(epoch: number) {
+    return !this.stopped && !this.busy && this.subscriptionEpoch === epoch;
+  }
+  private async checkSubscription(registration: ServiceWorkerRegistration, epoch: number) {
     const subscription = await registration.pushManager.getSubscription();
+    if (!this.subscriptionCurrent(epoch)) return;
     if (!subscription) { this.publish({ subscribed: false, registered: false, needsResubscribe: false }); return; }
     this.publish({ subscribed: true, needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
     const id = await this.knownSubscriptionId(subscription);
+    if (!this.subscriptionCurrent(epoch)) return;
     const result = await responseJson(await this.context.request(`/subscriptions/${encodeURIComponent(id)}`, {
       cache: 'no-store', signal: this.context.signal,
     }));
+    if (!this.subscriptionCurrent(epoch)) return;
     if (!record(result) || typeof result.registered !== 'boolean') throw new Error('设备订阅检查响应无效');
     this.publish({ subscribed: true, registered: result.registered,
       needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
@@ -167,18 +174,21 @@ export class DeviceBridge {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !this.entry || this.stopped) {
       this.initializing = false; return;
     }
+    const epoch = this.subscriptionEpoch;
     try {
       const registration = await this.findRegistration();
-      if (this.stopped) return;
+      if (!this.subscriptionCurrent(epoch)) return;
       this.bindRegistration(registration);
       this.publish({ installed: Boolean(registration),
         permission: typeof Notification === 'undefined' ? 'unsupported' : Notification.permission });
       if (registration) {
-        try { await this.updateRegistration(); } catch (error) { this.fail(error); }
-        try { await this.send({ type: 'SYNC' }); } catch (error) { this.fail(error); }
-        await this.checkSubscription(registration);
+        try { await this.updateRegistration(); } catch (error) { if (this.subscriptionCurrent(epoch)) this.fail(error); }
+        if (!this.subscriptionCurrent(epoch)) return;
+        try { await this.send({ type: 'SYNC' }); } catch (error) { if (this.subscriptionCurrent(epoch)) this.fail(error); }
+        if (!this.subscriptionCurrent(epoch)) return;
+        await this.checkSubscription(registration, epoch);
       }
-    } catch (error) { this.fail(error); }
+    } catch (error) { if (this.subscriptionCurrent(epoch)) this.fail(error); }
     finally {
       this.initializing = false;
       if (this.latest) this.apply(this.latest, []);
@@ -254,6 +264,7 @@ export class DeviceBridge {
   async enable() {
     if (this.busy || this.stopped || !this.status.supported) return;
     this.busy = true;
+    this.subscriptionEpoch++;
     this.publish({ busy: true, error: null });
     try {
       // Permission is requested synchronously within this explicit button gesture.
@@ -322,6 +333,7 @@ export class DeviceBridge {
   async disable() {
     if (this.busy || this.stopped || !this.registration) return;
     this.busy = true;
+    this.subscriptionEpoch++;
     this.publish({ busy: true, error: null });
     try {
       const subscription = await this.registration.pushManager.getSubscription();
