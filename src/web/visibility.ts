@@ -7,7 +7,8 @@ export function visibleRegion(rect: Rectangle, intersection: Rectangle,
   const long = rect.height > viewport.height;
   const top = long ? Math.max(rect.top, rect.bottom - Math.min(48, viewport.height)) : rect.top;
   if (top < viewport.top || intersection.top > top + 1 || intersection.bottom < rect.bottom - 1) return null;
-  return { ...rect, top, height: rect.bottom - top };
+  return { top, bottom: rect.bottom, left: rect.left, right: rect.right,
+    width: rect.width, height: rect.bottom - top };
 }
 export function observeRead(element: HTMLElement, allowed: () => boolean, presented: () => void,
   delay: number): () => void {

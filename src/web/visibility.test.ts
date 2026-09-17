@@ -6,6 +6,16 @@ const rect = (top: number, bottom: number, left = 10, right = 290) =>
   ({ top, bottom, left, right, width: right - left, height: bottom - top });
 const viewport = { top: 0, left: 0, height: 600, width: 300 };
 
+test('native DOMRect prototype accessors remain available for hit testing', () => {
+  const native = Object.create(Object.fromEntries(
+    Object.entries(rect(10, 300)).map(([key, value]) => [key, value]),
+  )) as ReturnType<typeof rect>;
+  assert.deepEqual(Object.keys(native), [], 'DOM geometry need not expose enumerable own fields');
+  const region = visibleRegion(native, rect(10, 300), viewport);
+  assert.deepEqual(region, rect(10, 300));
+  assert.ok(Number.isFinite((region!.left + region!.right) / 2));
+});
+
 test('short messages require the entire message, not merely an intersecting beginning or ending', () => {
   assert.notEqual(visibleRegion(rect(10, 300), rect(10, 300), viewport), null);
   assert.equal(visibleRegion(rect(-10, 300), rect(0, 300), viewport), null);
