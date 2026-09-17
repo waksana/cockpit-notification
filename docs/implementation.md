@@ -18,7 +18,7 @@
 | 最终回复 | 采用用户确认的结构兼容判定，见下节，不按文字关键词 |
 | 推送 | 模块后端调用标准 Web Push；等待窗口默认 3000ms，已核销的不再发送 |
 | 设备配置 | VAPID 和推送订阅与未读账本分开保存，私有模块数据目录 |
-| UI | Web API v2 state 注册与 message/sessionStatus/globalActions middleware；公共 UI v1 不变 |
+| UI | Web API v2 state 注册、message/sessionStatus 与实际导航/管理标题栏 middleware；公共 UI v1 不变 |
 | worker | 模块专属稳定 URL，narrow scope，不控制 Chat、不开离线缓存 |
 
 Web state 服务复用既有未读和设备逻辑，HTTP、版本与批量核销仍由模块管理。

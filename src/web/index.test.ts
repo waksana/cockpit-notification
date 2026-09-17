@@ -234,7 +234,8 @@ test('frontend registers concrete services and v2 middleware; unsupported push k
   await settle();
   assert.deepEqual(Object.keys(frontend).sort(), ['apiVersion', 'components', 'dispose']);
   assert.equal(frontend.apiVersion, 2);
-  assert.deepEqual(frontend.components?.map(component => component.boundary), ['message', 'sessionStatus', 'globalActions']);
+  assert.deepEqual(frontend.components?.map(component => component.boundary),
+    ['message', 'sessionStatus', 'globalNavigation', 'managementHeader', 'managementDetailHeader']);
   assert.deepEqual(f.services.map(service => [service.id, service.instance.constructor.name]),
     [['device-bridge', 'DeviceBridge'], ['unread-store', 'UnreadStore']]);
   const ids = [...f.services, ...frontend.components!].map(registration => registration.id);
@@ -487,7 +488,7 @@ test('sidebar badge is noninteractive, total comes from snapshot, and settings u
   assert.deepEqual(badge.props.children, [1]);
   f.unmount();
   const globalBase = (() => null);
-  const actions = frontend.components!.find(component => component.boundary === 'globalActions')!.wrap(globalBase);
+  const actions = frontend.components!.find(component => component.boundary === 'globalNavigation')!.wrap(globalBase);
   const hostAction = 'native and inherited global actions';
   const outer = f.render(actions, { children: hostAction })!;
   assert.equal(outer.type, globalBase, 'global middleware introduces no placeholder container');
@@ -505,6 +506,26 @@ test('sidebar badge is noninteractive, total comes from snapshot, and settings u
   assert.equal(portal.type, 'portal');
   const dialog = (portal.props.children as Element[])[0]!;
   assert.equal(dialog.type, 'dialog');
+});
+
+test('management middleware retains the actual header props and existing actions without a substitute slot', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  const base = () => null;
+  const inherited = { type: 'button', props: { children: ['existing action'] } };
+  const onRefresh = () => {};
+  for (const boundary of ['managementHeader', 'managementDetailHeader'] as const) {
+    const middleware = frontend.components!.find(component => component.boundary === boundary)!;
+    const header = f.render(middleware.wrap(base), { section: 'mcp', item: 'Example',
+      onRefresh, actions: inherited })!;
+    assert.equal(header.type, base);
+    assert.equal(header.props.item, 'Example');
+    assert.equal(header.props.onRefresh, onRefresh);
+    const actions = header.props.actions as Element;
+    assert.equal(typeof actions.type, 'symbol');
+    assert.equal((actions.props.children as unknown[])[1], inherited);
+    f.unmount();
+  }
 });
 
 test('breaking frontend ABI rejection and gutter geometry are explicit; pinned Lucide nodes retain upstream identity', async t => {

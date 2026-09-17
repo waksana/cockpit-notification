@@ -209,8 +209,14 @@ export const activate: ActivateFrontend = context => {
       { id: 'unread-count', boundary: 'sessionStatus', wrap: Base => function UnreadSessionStatus(props) {
         return <Base {...props}>{props.children}<SessionBadge sessionId={props.sessionId} /></Base>;
       } },
-      { id: 'notification-settings', boundary: 'globalActions', wrap: Base => function NotificationGlobalActions(props) {
+      { id: 'notification-navigation', boundary: 'globalNavigation', wrap: Base => function NotificationNavigation(props) {
         return <Base {...props}>{props.children}<GlobalAction /></Base>;
+      } },
+      { id: 'notification-management', boundary: 'managementHeader', wrap: Base => function NotificationManagement(props) {
+        return <Base {...props} actions={<><GlobalAction />{props.actions}</>} />;
+      } },
+      { id: 'notification-detail', boundary: 'managementDetailHeader', wrap: Base => function NotificationDetail(props) {
+        return <Base {...props} actions={<><GlobalAction />{props.actions}</>} />;
       } },
     ],
     dispose,

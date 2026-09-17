@@ -37,7 +37,7 @@
 - Web API v2：context 与返回声明都要求 `apiVersion: 2`，旧 Web 插口不保留兼容层。
 - `context.state.register` 注册已有 UnreadStore 与 DeviceBridge 等共享状态服务；
   不按消息重复创建 store 或发 HTTP，不把未读写入本体原生数据。
-- `components` 注册 message/sessionStatus/globalActions middleware，
+- `components` 注册 message/sessionStatus 及实际 globalNavigation/managementHeader/managementDetailHeader middleware，
   使用基础 props 的身份、完成事实、正文 bodyRef、children/adornment 组合原组件。
 - `context.state.host` 提供当前会话、前后台和连接状态；`onInvalidate` 接收既有模块变化提示。
 - 后端 `controlEvents` 观察已有会话控制投影；`invalidate()` 复用已有 SSE，
@@ -57,6 +57,8 @@
 使用外侧留白，不包裹或替换正文，也不改变 Markdown 首末子元素的排版。
 计数数字属于附加展示，不挤掉已有会话标题或原生待回答状态。
 Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占位容器。
+导航增强包装原有菜单按钮/菜单，管理页增强包装原有返回/标题/刷新组件；
+不在它们旁边另插一个默认内容为空的 globalActions 位置。
 正文、卡片、输入框与 dialog 的视觉几何保持不变，原有 refs/children/actions 必须组合保留。
 
 模块依据 message 的 bodyRef 观察真实裁剪、遮挡和稳定可见时间；宿主不决定“已读”。
