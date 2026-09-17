@@ -1,7 +1,8 @@
 # 参与开发
 
-当前处于需求与设计文档阶段。先阅读[产品要求](docs/requirements.md)和
-[待细化设计](docs/design-questions.md)，不要直接将候选方案实现为既定契约。
+当前处于需求与设计文档阶段。先阅读[产品要求](docs/requirements.md)、
+[状态机](docs/state-machines.md)和[待细化设计](docs/design-questions.md)。
+状态机是待实现的设计契约，不能把尚未解决的原生适配或平台细节假定为已具备。
 
 ## 变更范围
 
@@ -12,6 +13,8 @@
   [开发原则](https://github.com/waksana/cockpit/blob/main/docs/DEVELOPMENT.md#interaction-semantics-and-structural-correctness)。
   可见外观、控件语义、焦点、状态和事件归属必须自洽，不仅是鼠标能点击。
 - 文档区分现状、已确认需求和待定方案；不通过改文档掩盖实现缺口。
+- 状态变更需同步检查不变量和乱序时序表，特别是核销先到、旧响应、推送迟到、
+  重启清零与旧快照不能清理新通知；不要在多个页面复制各自一份转移规则。
 - 文档变更只做相关链接、锚点与事实检查；当前没有运行测试或产包流水线，不伪造通过记录。
 
 ## 隔离与数据
