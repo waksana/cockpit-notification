@@ -99,8 +99,7 @@ export function discoverModuleApi(value: unknown, configuration: WorkerConfigura
   const matches = value.modules.filter(item => record(item) && item.id === configuration.moduleId);
   const active = value.active.filter(item => record(item) && item.id === configuration.moduleId);
   const module = matches[0];
-  if (matches.length !== 1 || active.length !== 1 || !record(module) || !record(active[0]) ||
-      value.errors.some(item => record(item) && item.id === configuration.moduleId)) {
+  if (matches.length !== 1 || active.length !== 1 || !record(module) || !record(active[0])) {
     throw new Error('通知模块未成功加载或已停用；请打开前台检查模块并更新通知程序');
   }
   if (typeof module.digest !== 'string' || !/^[a-f0-9]{64}$/.test(module.digest) ||

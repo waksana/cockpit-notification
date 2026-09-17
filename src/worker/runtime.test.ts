@@ -119,15 +119,21 @@ test('an offline old worker with a retired digest API shows the valid generic pu
   assert.equal('apiUrl' in incoming, false);
 });
 
-test('read/stale push is visibly shown then closed, without re-adding U or trusting notification counts', async () => {
+test('ordinary and stale same-generation pushes do not fetch full state or restore an older badge', async () => {
   const f = fixture();
   f.setState({ generation: 'generation-a', revision: 2, total: 0, retired: [] });
   await f.worker.push(payload());
   assert.equal(f.shown.length, 1);
+  assert.equal(f.notifications[0]?.closed, false, 'without exact read proof cleanup waits for foreground reconciliation');
+  assert.deepEqual(f.badges, []);
+  assert.equal(f.calls.length, 0);
+  await f.worker.message({ type: 'APPLY_STATE', state: empty() }, f.client.id);
   assert.equal(f.notifications[0]?.closed, true);
   assert.deepEqual(f.badges, [0]);
-  assert.equal(f.calls.length, 1);
-  assert.equal(f.calls[0]?.url.endsWith('/state'), true);
+  assert.equal(f.calls.length, 0);
+  await f.worker.push(payload('generation-a', 3));
+  assert.equal(f.badges.at(-1), 3);
+  assert.equal(f.calls.length, 0);
 });
 
 test('unknown generation APPLY requires own fresh GET, not the incoming page snapshot', async () => {
@@ -184,7 +190,7 @@ test('disabled module, failed bootstrap and unsafe discovery preserve state and 
     new Response(null, { status: 401 }),
     Response.json({ modules: [], active: [], errors: [] }),
     Response.json({ ...bootstrap(), modules: [{ ...bootstrap().modules[0], apiBase: 'https://outside.test/api' }] }),
-    Response.json({ ...bootstrap(), errors: [{ id: 'cockpit-notification', error: 'module failed' }] }),
+    Response.json({ ...bootstrap(), modules: [], errors: [{ id: 'cockpit-notification', error: 'module failed' }] }),
   ]) {
     const f = fixture();
     f.setState({ generation: 'generation-a', revision: 20, total: 5, retired: [] });

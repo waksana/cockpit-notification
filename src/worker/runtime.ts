@@ -150,8 +150,8 @@ export class NotificationWorker {
     const current = await this.environment.storage.load();
     await this.commit(pushBadge(current, payload));
     await this.broadcast('INVALIDATE');
-    // A legal push execution can reconcile, but never creates a background poller.
-    await this.sync(current?.generation !== payload.generation);
+    // Normal pushes carry a count, not a request to fetch the whole unread set.
+    if (!current || current.generation !== payload.generation) await this.sync(true);
   }
   async click(notification: VisibleNotification) {
     notification.close();

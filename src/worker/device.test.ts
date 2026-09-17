@@ -103,13 +103,14 @@ test('host bootstrap discovery requires one successfully loaded module and binds
   const value = { modules: [module], active: [{ id: module.id, digest }], errors: [] };
   const expected = { digest, apiBase: `https://host.test/deployment${api}` };
   assert.deepEqual(discoverModuleApi(value, configuration), expected);
+  assert.deepEqual(discoverModuleApi({ ...value, errors: [{ id: module.id, code: 'PUSH_UNKNOWN' }] }, configuration),
+    expected, 'runtime diagnostics do not imply the active module failed to load');
   assert.deepEqual(discoverModuleApi({ ...value, modules: [{ ...module, apiBase: expected.apiBase }] }, configuration), expected);
   for (const invalid of [
     { ...value, modules: [] },
     { ...value, modules: [module, module] },
     { ...value, active: [] },
     { ...value, active: [{ id: module.id, digest: 'a'.repeat(64) }] },
-    { ...value, errors: [{ id: module.id, error: 'failed to load' }] },
     { ...value, apiVersion: 2 },
     { ...value, modules: [{ ...module, apiBase: 'https://outside.test/api' }] },
     { ...value, modules: [{ ...module, apiBase: `https://host.test/different-prefix${api}` }] },
