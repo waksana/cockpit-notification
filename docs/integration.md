@@ -19,7 +19,8 @@
 
 ## 2. 当前可复用能力
 
-以 Cockpit v0.2.0 源码 `ab88f9b172884266758095b7a641da0990544942` 为观察基线：
+以 Cockpit v0.2.1 源码 `95df1813788ba374fa694c5059f210c026e80d40` 为观察基线，
+不是通知模块已选定的构建 SDK pin：
 
 - 本地可信模块包、后端主进程 import、前后端同包、统一端口、冷加载。
 - 模块命名空间 HTTP 路由、静态资源、错误报告和终止信号。
@@ -48,20 +49,26 @@
 是否由本体提供几何事实、模块执行阅读策略，或提供更高层的通用呈现事件，需要在 ABI 设计时细化。
 不能把模块专用的阅读阈值硬编码进本体。
 
-## 4. 同步与原生恢复
+## 4. 按需快照与新消息告知
 
 模块后端是 U 与已读记录的权威；前端可以保留当前展示快照与必要在途状态，
 不能悄悄各自维护永久独立的计数。
 
-优先复用统一传输和增量失效/同步能力，不为每个 session 或每条消息新开连接。
-现有 HTTP/1.1 多标签页长连接可能占满浏览器连接池，新增模块不能把这一问题放大。
-具体使用现有事件通道、批量读取还是其他通用机制，待讨论后确定。
+网页初始化、回前台、切会话与重连取完整快照；自己的批量核销直接返回新快照。
+不需要每条消息先 GET 再确认已读，不主动广播每次核销，也不后台轮询。
+其他客户端的已读可以等下一次成功同步再体现。
 
-原生最终回复与 ask 的统计要支持去重和明确恢复边界。只能通过固定版本 SDK 的公开接口
-核对原生事件，不扫描 native home 私库或缓存一份完整聊天兜底。
-只有 `sessionId`/时间戳/UUID 不能证明消息先后；读取 cursor 是原生分页位置，不是用户已读状态。
+现有 `/events` 主要提供 session 元数据，具体聊天流服务当前可见会话。
+不能据此推断前端已收到所有 session 的最终回复 ID，更不能用活动时间变化代替计数。
+为及时发现其他会话新增 U，候选最小配套是在模块插入完成后通过已有 SSE 提供通用状态变化提示，
+可见前端合并触发一次快照读取。字段、边界和取消语义待宿主 ABI 确认，不能假称当前支持。
 
-首次启用边界、停机补读、模块停用期及外部 CLI 会话的覆盖承诺，见[待细化设计](design-questions.md)。
+不为每个 session 或每条消息新开连接，避免放大 HTTP/1.1 多标签页连接池占满问题。
+状态机的完整快照、代际、旧响应和 dirty 合并规则见[网页状态机](state-machines.md#client)。
+
+原生最终回复与 ask 的统计只能通过固定 SDK 的公开事件核对；模块只登记本运行代的新实时事件，
+不做停机补读、不从 native home 扫盘恢复。读取 cursor 仍只是原生分页位置，不是已读状态。
+模块重启清零以及推送配置的独立稳定来源见[内存生命周期](state-machines.md#restart)。
 
 ## 5. 历史位置与导航
 
@@ -81,16 +88,21 @@
 
 网页 U、PWA 图标和系统通知是同一状态的不同消费者，能力不相同。
 
-- 使用支持的 Badging API 提交全站 U；不把操作系统的通知卡片数当作 U。
+- 使用支持的 Badging API 提交全站 U；为零时明确清除角标。角标不会自动清理通知。
 - 以用户明确操作申请通知权限，不在模块加载时自动弹系统授权框。
 - 通知通过本应用的 Service Worker 注册产生，并在 `data` 中携带消息/session 关联身份。
-- 清理时只查询并关闭本应用、相应消息的通知，不清理其他应用或其他会话。
+- 清理时只查询并关闭本应用、相应消息及版本范围内的通知，不清理其他应用或其他会话；
+  不能用一个总数判断具体哪条已读。
 - Safari 的 `tag` 支持不足以作为通知替换/去重的唯一依据；应评估 `getNotifications()`、
   `data` 与 `close()` 的组合，并以实际支持平台检验。
 - iOS/iPadOS 16.4 起支持主屏幕 Web App 的 Web Push 和 Badging；仍受用户权限与系统设置影响，
   不能把普通浏览器标签页与安装后的 PWA 混为一种身份。
 - Web Push 的后台执行和可见通知要求不允许无限制的静默跨设备同步；
-  不承诺另一台休眠设备的通知及角标被立即清空。
+  不给 READ 额外发送清除 push，不承诺另一台休眠设备的通知及角标被立即清空。
+
+后台 PWA 不运行完整 Chat 或未读账本，收到 push 时只处理该条通知与所带总数；
+打开后统一应用权威完整快照并清理旧通知。generation/revision 与消息 createdRevision
+避免旧总数倒退、旧快照误清新通知。具体规则只在[PWA 状态机](state-machines.md#pwa)维护。
 
 Service Worker 作用域、稳定 URL、模块版本路由、停用/升级清理和权限失败处理需要专门设计。
 不能让模块擅自接管全站 worker，也不顺带引入离线页面缓存或全站请求代理。
@@ -98,8 +110,26 @@ Service Worker 作用域、稳定 URL、模块版本路由、停用/升级清理
 参考：
 [WebKit Web Push](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)、
 [WebKit Badging](https://webkit.org/blog/14112/badging-for-home-screen-web-apps/)、
+[WebKit Declarative Web Push](https://webkit.org/blog/16535/meet-declarative-web-push/)、
 [Chrome Badging](https://developer.chrome.com/docs/capabilities/web-apis/badging-api)、
 [Notifications 标准](https://notifications.spec.whatwg.org/)、
 [MDN 浏览器兼容数据](https://github.com/mdn/browser-compat-data/blob/main/api/Notification.json)。
 
 浏览器支持表会变化；这里记录设计限制，不代替发布时的能力检测和真机覆盖。
+
+## 7. 成熟 IM 的参考边界
+
+Matrix 的 `/sync` 提供初始状态及后续同步；TDLib向客户端提供会话未读计数与阅读更新。
+这些产品不要求 UI 只靠当前已渲染消息猜出全局未读。Element/TDLib 的提醒抑制与延迟也
+与已读状态分工，通知本身不是未读账本。
+
+本模块只借鉴统一状态、身份、幂等与快照校正。普通 Matrix/TDLib 阅读回执常表示
+“读到该消息及之前”，不能用来替代本模块“只核销看到的具体消息”的要求。
+其持久历史/增量补差体系也不直接搬入本模块；内存重启清零是刻意的产品取舍。
+
+参考：
+[Matrix sync](https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3sync)、
+[Matrix receipts](https://spec.matrix.org/latest/client-server-api/#receipts)、
+[TDLib 接口定义](https://github.com/tdlib/td/blob/d1085f9cebc5a62379991ae1652673954f229c1f/td/generate/scheme/td_api.tl)、
+[Element 通知策略](https://github.com/element-hq/element-web/blob/26771fd3b1576f8b35928ce8bba33a2ab6e7def4/apps/web/src/Notifier.ts#L500-L594)、
+[TDLib 通知延迟](https://github.com/tdlib/td/blob/d1085f9cebc5a62379991ae1652673954f229c1f/td/telegram/NotificationManager.cpp#L841-L877)。
