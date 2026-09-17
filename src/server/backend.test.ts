@@ -1,0 +1,255 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { ServerEvent } from '@cockpit/module-api';
+import { activate } from './index.ts';
+import { parseSnapshot, type NotificationPayload, type ReadResult } from '../shared/protocol.ts';
+import { ask, fixture, flush, invoke, key, subscription, turn, observation } from './test-fixtures.ts';
+import type { SendOutcome } from './push.ts';
+
+test('state/read HTTP contracts are no-store, exact, atomic and never broadcast reads', async t => {
+  const f = fixture(t);
+  const first = await invoke(f.backend, 'GET', '/state');
+  assert.equal(first.headers?.['cache-control'], 'private, no-store');
+  const generation = parseSnapshot(first.body).generation;
+  const early = await invoke(f.backend, 'POST', '/read', { generation, keys: [key('early')] });
+  assert.equal((early.body as ReadResult).state.revision, 1);
+  assert.equal(f.invalidations.length, 0);
+  await f.emit(turn('early'));
+  assert.equal((await f.state()).total, 0);
+  const events = turn('new');
+  await f.emit(events);
+  await f.emit(events);
+  assert.equal(f.invalidations.length, 1);
+  assert.equal(f.invalidations[0]!.total, 1);
+  const before = await f.state();
+  for (const body of [
+    { generation, keys: [key('new'), key('bad id')] },
+    { generation, keys: [] }, { generation, keys: Array.from({ length: 129 }, () => key('new')) },
+    { generation, keys: [key('new')], extra: 'synthetic-secret-input' },
+  ]) {
+    const response = await invoke(f.backend, 'POST', '/read', body);
+    assert.equal(response.status, 400);
+    assert.ok(!JSON.stringify(response).includes('synthetic-secret-input'));
+    assert.deepEqual(await f.state(), before);
+  }
+  const mismatch = await invoke(f.backend, 'POST', '/read', { generation: 'previous-generation', keys: [key('new')] });
+  assert.equal(mismatch.status, 409);
+  assert.equal((mismatch.body as { code: string }).code, 'GENERATION_MISMATCH');
+  const results = await Promise.all([0, 1].map(() =>
+    invoke(f.backend, 'POST', '/read', { generation, keys: [key('new'), key('new')] })));
+  assert.deepEqual(results[0], results[1]);
+  assert.equal((results[0]!.body as ReadResult).acknowledged.length, 1);
+  assert.equal((await f.state()).total, 0);
+  assert.equal(f.invalidations.length, 1);
+});
+
+test('restarted backend ignores durable historical views and only counts a fresh matching stream', async t => {
+  const f = fixture(t);
+  assert.ok(f.backend.events!.types.includes('assistant.message_start'));
+  assert.ok(f.backend.events!.types.includes('assistant.message_delta'));
+  await f.emit(turn('before-restart', { phase: 'final_answer' }));
+  f.backend.dispose?.();
+  const restarted = activate({ ...f.context, signal: new AbortController().signal, invalidate() {} },
+    { clock: f.clock, sender: async () => 'ACCEPTED' });
+  t.after(() => restarted.dispose?.());
+  for (const phase of [undefined, 'final_answer']) {
+    const history = turn('history', { phase }).filter(item => item.event.ephemeral !== true);
+    for (const event of [...history, observation('assistant.idle', {}, { ephemeral: true })]) {
+      await restarted.events!.handle(event);
+    }
+  }
+  assert.equal(parseSnapshot((await invoke(restarted, 'GET', '/state')).body).total, 0);
+  for (const event of turn('fresh')) await restarted.events!.handle(event);
+  const state = parseSnapshot((await invoke(restarted, 'GET', '/state')).body);
+  assert.equal(state.total, 1);
+  assert.equal(state.sessions[0]!.items[0]!.nativeId, 'fresh');
+});
+
+test('host ask add/null/replacement use requestId and retire instead of fabricating READ', async t => {
+  const f = fixture(t);
+  await f.control(ask('a'));
+  await f.control(ask('a'));
+  await f.backend.events!.handle(observation('user_input.requested', { requestId: 'native-other' }));
+  assert.equal((await f.state()).total, 1);
+  assert.equal((await f.state()).sessions[0]!.items[0]!.nativeId, 'a');
+  const before = (await f.state()).revision;
+  await f.control(ask('b'));
+  assert.equal((await f.state()).revision, before + 1);
+  assert.equal((await f.state()).total, 1);
+  await f.control(ask(null));
+  assert.equal((await f.state()).total, 0);
+  await f.control(ask('a'));
+  assert.equal((await f.state()).total, 0);
+  assert.equal(f.invalidations.length, 3);
+  await f.control({ type: 'session/added', session: {
+    sessionId: 'added-session', ask: { requestId: 'added-ask', question: 'synthetic-secret-question' },
+  } } as ServerEvent);
+  assert.equal((await f.state()).total, 1);
+  await f.control({ type: 'session/patch', sessionId: 'added-session', title: 'unchanged-ask' });
+  assert.equal((await f.state()).total, 1);
+});
+
+test('session deletion/rewind retire current and staged reminders; compaction does not', async t => {
+  const f = fixture(t);
+  await f.emit(turn('readable'));
+  await f.control(ask('ask'));
+  await f.control({ type: 'chat/invalidated', sessionId: 'session-a', reason: 'compaction' });
+  assert.equal((await f.state()).total, 2);
+  await f.emit(turn('staged').slice(0, 2));
+  await f.control({ type: 'chat/invalidated', sessionId: 'session-a', reason: 'rewind' });
+  await f.emit(turn('staged'));
+  assert.equal((await f.state()).total, 0);
+  await f.emit(turn('after-rewind'));
+  assert.equal((await f.state()).total, 1);
+  await f.control({ type: 'session/removed', sessionId: 'session-a' });
+  await f.emit(turn('deleted-late'));
+  await f.control(ask('deleted-late-ask'));
+  assert.equal((await f.state()).total, 0);
+});
+
+test('rapid READ/retire cancels delayed sends and duplicate NEW cannot reschedule', async t => {
+  const sent: NotificationPayload[] = [];
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  const events = turn('quick');
+  await f.emit(events);
+  await f.clock.advance(2999);
+  assert.equal(sent.length, 0);
+  await invoke(f.backend, 'POST', '/read', { generation: (await f.state()).generation, keys: [key('quick')] });
+  await f.clock.advance(10);
+  await f.emit(events);
+  await f.control(ask('cancelled'));
+  await f.control(ask(null));
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 0);
+  assert.equal(f.clock.timers.size, 0);
+});
+
+test('multiple devices get one generic payload each while U remains one', async t => {
+  const sent: { id: string; payload: NotificationPayload }[] = [];
+  const f = fixture(t, async (device, payload) => { sent.push({ id: device.id, payload }); return 'ACCEPTED'; });
+  for (const name of ['one', 'two']) await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(name) });
+  const events = turn('new', {}, 'session/with-space%value');
+  await f.emit(events);
+  await f.emit(events);
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 2);
+  assert.equal(new Set(sent.map(send => send.id)).size, 2);
+  assert.equal((await f.state()).total, 1);
+  for (const { payload } of sent) {
+    assert.equal(payload.total, 1);
+    assert.equal(payload.createdRevision, 1);
+    assert.equal(payload.title, '会话有新回复');
+    assert.equal(payload.navigationTarget, 'session/session%2Fwith-space%25value');
+    assert.ok(!JSON.stringify(payload).includes('synthetic-secret'));
+  }
+  await f.clock.advance(60_000);
+  assert.equal(sent.length, 2);
+});
+
+test('no targets at due time means no backfill after device registration', async t => {
+  let sends = 0;
+  const f = fixture(t, async () => { sends++; return 'ACCEPTED'; });
+  await f.emit(turn('no-targets'));
+  await f.clock.advance(3000);
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  await f.clock.advance(3000);
+  assert.equal(sends, 0);
+  assert.equal((await f.state()).total, 1);
+  await f.emit(turn('new-after-registration'));
+  await f.clock.advance(3000);
+  assert.equal(sends, 1);
+});
+
+test('READ during first send stops unsent devices; started completion cannot resurrect entry', async t => {
+  let complete!: (value: SendOutcome) => void;
+  let sends = 0;
+  const f = fixture(t, async () => { sends++; return new Promise(resolve => { complete = resolve; }); });
+  for (const name of ['one', 'two']) await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(name) });
+  await f.emit(turn('during-send'));
+  await f.clock.advance(3000);
+  assert.equal(sends, 1);
+  await invoke(f.backend, 'POST', '/read', { generation: (await f.state()).generation, keys: [key('during-send')] });
+  complete('ACCEPTED');
+  await flush();
+  assert.equal(sends, 1);
+  assert.equal((await f.state()).total, 0);
+});
+
+test('failed and unknown push outcomes preserve unread and never retry or expose provider errors', async t => {
+  for (const outcome of ['FAILED', 'UNKNOWN', 'throw'] as const) {
+    let sends = 0;
+    const f = fixture(t, async () => {
+      sends++;
+      if (outcome === 'throw') throw new Error('synthetic-secret-provider-response');
+      return outcome;
+    });
+    await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(outcome) });
+    await f.emit(turn(outcome));
+    await f.clock.advance(3000);
+    await f.clock.advance(60_000);
+    assert.equal(sends, 1);
+    assert.equal((await f.state()).total, 1);
+    assert.equal(f.errors.length, 1);
+    assert.ok(!String(f.errors[0]).includes('synthetic-secret'));
+  }
+});
+
+test('subscription routes return only opaque identity and snapshot; lifecycle restart forgets U', async t => {
+  const f = fixture(t);
+  assert.deepEqual(Object.keys(f.backend.publicConfig!).sort(), ['maxBatch', 'pushDelayMs', 'readDelayMs', 'vapidPublicKey']);
+  const registered = await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  const body = registered.body as { id: string; generation: string; state: unknown };
+  assert.match(body.id, /^[a-f0-9]{64}$/);
+  assert.equal(parseSnapshot(body.state).generation, body.generation);
+  assert.deepEqual((await invoke(f.backend, 'GET', '/subscriptions/:id', undefined, { id: body.id })).body,
+    { registered: true });
+  await f.emit(turn('restart-unread'));
+  await invoke(f.backend, 'POST', '/read', { generation: body.generation, keys: [key('early-tombstone')] });
+  const persisted = readFileSync(join(f.dataRoot, 'push-config.json'), 'utf8');
+  assert.ok(!persisted.includes('restart-unread'));
+  assert.ok(!persisted.includes('early-tombstone'));
+  assert.ok(!persisted.includes('synthetic-secret-body'));
+  f.backend.dispose?.();
+  const restarted = activate({ ...f.context, signal: new AbortController().signal, invalidate() {} },
+    { clock: f.clock, sender: async () => 'ACCEPTED' });
+  t.after(() => restarted.dispose?.());
+  const state = parseSnapshot((await invoke(restarted, 'GET', '/state')).body);
+  assert.notEqual(state.generation, body.generation);
+  assert.equal(state.revision, 0);
+  assert.equal(state.total, 0);
+  assert.equal(restarted.publicConfig!.vapidPublicKey, f.backend.publicConfig!.vapidPublicKey);
+  assert.deepEqual((await invoke(restarted, 'GET', '/subscriptions/:id', undefined, { id: body.id })).body, { registered: true });
+  assert.equal((await invoke(restarted, 'DELETE', '/subscriptions/:id', undefined, { id: body.id })).status, 204);
+  assert.deepEqual((await invoke(restarted, 'GET', '/subscriptions/:id', undefined, { id: body.id })).body, { registered: false });
+});
+
+test('abort clears pending work, aborts started send, and fences late callbacks and route requests', async t => {
+  let signal: AbortSignal | undefined;
+  let complete!: (value: SendOutcome) => void;
+  let sends = 0;
+  const f = fixture(t, async (_device, _payload, value) => {
+    signal = value;
+    sends++;
+    return new Promise(resolve => { complete = resolve; });
+  });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  await f.emit(turn('in-flight'));
+  await f.clock.advance(3000);
+  await f.emit(turn('waiting'));
+  f.controller.abort();
+  assert.equal(signal!.aborted, true);
+  assert.equal(f.clock.timers.size, 0);
+  complete('UNKNOWN');
+  await flush();
+  await f.emit(turn('late'));
+  await f.control(ask('late'));
+  await f.clock.advance(3000);
+  assert.equal(sends, 1);
+  assert.equal(f.errors.length, 0);
+  const response = await invoke(f.backend, 'GET', '/state');
+  assert.equal(response.status, 503);
+  assert.equal((response.body as { code: string }).code, 'STOPPED');
+});
