@@ -1,0 +1,7 @@
+node_modules/
+dist/
+module-output/
+.cockpit-sdk/
+.host-sdk-source/
+*.log
+.DS_Store
