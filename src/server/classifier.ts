@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { NativeObservation } from '@cockpit/module-api';
 import { identity, MAX_BATCH, MAX_IDENTITIES, record, type MessageKey } from '../shared/protocol.ts';
 import { BackendError } from './errors.ts';
@@ -17,7 +18,7 @@ interface Turn {
   closed: boolean;
   invalid: boolean;
   tool: boolean;
-  apiCallId?: string;
+  apiCallHash?: string;
   streams: Set<string>;
   messages: { key: MessageKey; phase: 'final_answer' | 'excluded' | undefined; live: boolean }[];
 }
@@ -126,8 +127,13 @@ export class ReplyClassifier {
     if (data.toolRequests !== undefined && !Array.isArray(data.toolRequests)) turn.invalid = true;
     if (Array.isArray(data.toolRequests) && data.toolRequests.length > 0) turn.tool = true;
     if (data.apiCallId !== undefined) {
-      if (!identity(data.apiCallId) || (turn.apiCallId && turn.apiCallId !== data.apiCallId)) turn.invalid = true;
-      else turn.apiCallId = data.apiCallId;
+      if (typeof data.apiCallId !== 'string') turn.invalid = true;
+      else {
+        // Provider IDs are opaque SDK strings, not message keys; retain only a bounded, exact-code-unit digest.
+        const hash = createHash('sha256').update(data.apiCallId, 'utf16le').digest('hex');
+        if (turn.apiCallHash !== undefined && turn.apiCallHash !== hash) turn.invalid = true;
+        else turn.apiCallHash = hash;
+      }
     }
     if (typeof data.content !== 'string' || !data.content.trim()) return [];
     if (!identity(data.messageId)) {

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Ledger } from './ledger.ts';
 import { BackendError } from './errors.ts';
-import { parseSnapshot } from '../shared/protocol.ts';
-import { key } from './test-fixtures.ts';
+import { applyUnreadDelta, parseReadResult, parseSnapshot, parseUnreadEvent } from '../shared/protocol.ts';
+import { key } from './native-fixtures.ts';
 
 test('ledger snapshots are deterministic, exact and isolated from caller mutation', () => {
   const ledger = new Ledger();
@@ -25,15 +25,15 @@ test('ledger snapshots are deterministic, exact and isolated from caller mutatio
 test('early read, duplicate NEW and two-client batch acknowledgments are idempotent', () => {
   const ledger = new Ledger();
   const first = ledger.read(ledger.generation, [key('early'), key('early')]);
-  assert.equal(first.result.state.revision, 1);
+  assert.equal(parseReadResult(first.result).revision, 1);
   assert.equal(first.result.acknowledged.length, 1);
   assert.equal(ledger.transition([key('early')]).changed, false);
   ledger.transition([key('a'), key('b'), key('c')]);
   const left = ledger.read(ledger.generation, [key('a'), key('b')]);
   const right = ledger.read(ledger.generation, [key('a'), key('b')]);
   assert.deepEqual(left.result, right.result);
-  assert.equal(right.result.state.total, 1);
-  assert.equal(right.result.state.revision, 3);
+  assert.equal(ledger.snapshot().total, 1);
+  assert.equal(right.result.revision, 3);
   assert.equal(ledger.transition([key('a'), key('b'), key('c')]).changed, false);
 });
 
@@ -61,6 +61,61 @@ test('retirement plus replacement is atomic and keeps acknowledged tombstones', 
   assert.equal(change.removed.length, 1);
   assert.equal(ledger.snapshot().revision, 2);
   assert.equal(ledger.transition([key('old', 's', 'ask')]).changed, false);
+});
+
+test('each committed transition carries its exact contiguous delta, including early READ and retirement', () => {
+  const ledger = new Ledger();
+  let replica = ledger.snapshot();
+  const changes = [
+    ledger.read(ledger.generation, [key('early')]).change,
+    ledger.transition([key('a'), key('b'), key('early')]),
+    ledger.transition([key('new')], [key('a'), key('staged')]),
+    ledger.read(ledger.generation, [key('b'), key('early'), key('staged')]).change,
+  ];
+  for (const change of changes) {
+    assert.equal(change.changed, true);
+    if (!change.changed) throw new Error('Expected a ledger change');
+    assert.deepEqual(parseUnreadEvent(change.delta), change.delta);
+    replica = applyUnreadDelta(replica, change.delta);
+  }
+  assert.deepEqual(replica, ledger.snapshot());
+  assert.equal(replica.revision, 4);
+  assert.deepEqual(changes[0]!.removed, [key('early')]);
+  assert.deepEqual(changes[2]!.removed, [key('a'), key('staged')]);
+  assert.deepEqual(changes[3]!.removed, [key('b')]);
+  const duplicate = ledger.read(ledger.generation, [key('a'), key('staged')]);
+  assert.deepEqual(duplicate.change, { changed: false, added: [], removed: [] });
+  assert.deepEqual(duplicate.result, {
+    generation: ledger.generation, revision: 4, acknowledged: [key('a'), key('staged')],
+  });
+  assert.deepEqual(ledger.transition([key('a'), key('new')]), { changed: false, added: [], removed: [] });
+  assert.deepEqual(ledger.transition([]), { changed: false, added: [], removed: [] });
+  assert.deepEqual(ledger.snapshot(), replica);
+});
+
+test('delta and read receipt mutation cannot change retained identities or versions', () => {
+  const ledger = new Ledger();
+  const change = ledger.transition([key('a')]);
+  assert.equal(change.changed, true);
+  if (!change.changed) throw new Error('Expected a ledger change');
+  change.delta.added[0]!.nativeId = 'changed';
+  change.delta.revision = 100;
+  change.added[0]!.key.nativeId = 'changed-again';
+  assert.equal(ledger.get(key('a'))!.createdRevision, 1);
+  const receipt = ledger.read(ledger.generation, [key('a')]);
+  receipt.result.acknowledged[0]!.nativeId = 'other';
+  receipt.result.revision = 200;
+  assert.equal(ledger.transition([key('a')]).changed, false);
+  assert.equal(ledger.snapshot().revision, 2);
+});
+
+test('retiring an unseen key does not free unread capacity or partially install a tombstone', () => {
+  const ledger = new Ledger({ unread: 1, identities: 10 });
+  ledger.transition([key('existing')]);
+  const before = ledger.snapshot();
+  assert.throws(() => ledger.transition([key('extra')], [key('unseen')]), { code: 'UNREAD_CAPACITY' });
+  assert.deepEqual(ledger.snapshot(), before);
+  assert.equal(ledger.transition([key('unseen')], [key('existing')]).added.length, 1);
 });
 
 test('generation mismatch and malformed trailing identity cannot partially mutate', () => {

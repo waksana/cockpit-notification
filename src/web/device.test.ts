@@ -293,6 +293,32 @@ test('without an existing worker bootstrap never installs; only explicit enable 
   assert.equal(f.bridge.getSnapshot().registered, true);
   assert.equal(f.requests[0]?.path, '/subscriptions');
   assert.equal(f.requests[0]?.init?.method, 'POST');
+  assert.deepEqual(f.posted, [{ type: 'SYNC' }], 'subscription POST state is not worker read authority');
+});
+
+test('subscription receipt never supplies authority, and explicit enable requests an independent worker GET', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  const request = f.context.request;
+  f.context.request = async (path, init) => {
+    if (path === '/subscriptions' && init?.method === 'POST') {
+      return Response.json({ id: 'synthetic-device-id', generation: 'generation-b',
+        state: { unexpected: 'POST snapshots are not authority' } });
+    }
+    return request(path, init);
+  };
+  await f.bridge.enable();
+  assert.equal(f.bridge.getSnapshot().registered, true);
+  assert.deepEqual(f.posted, [{ type: 'SYNC' }, { type: 'SYNC' }]);
+  assert.deepEqual(f.errors, []);
+});
+
+test('device APPLY never forwards HTTP acknowledgement identities as cleanup proof', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  f.bridge.apply(state, [{ sessionId: 'session-a', kind: 'reply', nativeId: 'early-http-ack' }]);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(f.posted.at(-1), { type: 'APPLY_STATE', state, acknowledged: [] });
 });
 
 test('explicit registration uses the authoritative POST id for later removal, without re-deriving it', async t => {
@@ -368,6 +394,21 @@ test('worker-reported device failures remain visible while unsupported Web Push 
   const unsupported = new DeviceBridge(f.context);
   assert.equal(unsupported.getSnapshot().supported, false);
   unsupported.dispose();
+});
+
+test('only the active module worker can forward validated version hints; old invalidations do not request GET', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  const hint = { type: 'unread/sync', generation: 'generation-a', revision: 12 } as const;
+  const message = (source: unknown, data: unknown) => ({ source, data } as MessageEvent);
+  assert.deepEqual(f.bridge.handleMessage(message(f.worker, { moduleId: 'cockpit-notification', ...hint })), hint);
+  assert.equal(f.bridge.handleMessage(message({}, { moduleId: 'cockpit-notification', ...hint })), false);
+  assert.equal(f.bridge.handleMessage(message(f.worker, { moduleId: 'cockpit-notification', type: 'INVALIDATE' })), false);
+  assert.equal(f.bridge.handleMessage(message(f.worker, {
+    moduleId: 'cockpit-notification', ...hint, revision: '12',
+  })), false);
+  assert.match(f.bridge.getSnapshot().error!, /Invalid unread event version/);
+  assert.deepEqual(f.requests, []);
 });
 
 test('disposing while the permission gesture is pending cannot later install or subscribe a device', async t => {

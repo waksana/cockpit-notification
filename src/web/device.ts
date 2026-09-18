@@ -1,6 +1,6 @@
 import type { ModuleFrontendContext } from '@cockpit/module-api';
-import { identity, parseSnapshot, record } from '../shared/protocol.ts';
-import type { MessageKey, Snapshot } from '../shared/protocol.ts';
+import { identity, parseUnreadEvent, record } from '../shared/protocol.ts';
+import type { MessageKey, Snapshot, UnreadSyncHint } from '../shared/protocol.ts';
 import { responseJson } from './store.ts';
 
 export interface DeviceStatus {
@@ -194,21 +194,26 @@ export class DeviceBridge {
       if (this.latest) this.apply(this.latest, []);
     }
   }
-  apply(state: Snapshot, acknowledged: MessageKey[]) {
+  apply(state: Snapshot, _acknowledged: MessageKey[]) {
     this.latest = state;
     if (!this.registration || this.initializing || this.stopped) return;
-    void this.send({ type: 'APPLY_STATE', state, acknowledged }).catch(error => this.fail(error));
+    void this.send({ type: 'APPLY_STATE', state, acknowledged: [] }).catch(error => this.fail(error));
   }
   async sync() {
     if (!this.registration || this.stopped) return;
     try { await this.updateRegistration(); await this.send({ type: 'SYNC' }); this.publish({ error: null }); }
     catch (error) { this.fail(error); }
   }
-  handleMessage(event: MessageEvent) {
+  handleMessage(event: MessageEvent): UnreadSyncHint | false {
     if (event.source !== this.registration?.active || !record(event.data) ||
         event.data.moduleId !== 'cockpit-notification') return false;
     if (event.data.type === 'ERROR') this.fail(new Error(String(event.data.error ?? '通知 worker 失败')));
-    return event.data.type === 'INVALIDATE';
+    if (event.data.type !== 'unread/sync') return false;
+    try {
+      const { moduleId: _moduleId, ...value } = event.data;
+      const hint = parseUnreadEvent(value);
+      return hint.type === 'unread/sync' ? hint : false;
+    } catch (error) { this.fail(error); return false; }
   }
   private active(registration: ServiceWorkerRegistration): Promise<ServiceWorker> {
     if (registration.active?.state === 'activated') return Promise.resolve(registration.active);
@@ -303,14 +308,13 @@ export class DeviceBridge {
         method: 'POST', cache: 'no-store', signal: this.context.signal,
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subscription: subscription.toJSON() }),
       }));
-      if (!record(body) || !identity(body.id)) {
+      this.ensureActive();
+      if (!record(body) || !identity(body.id) || !identity(body.generation)) {
         throw new Error('设备注册回执身份无效');
       }
-      const state = parseSnapshot(body.state);
-      if (body.generation !== state.generation) throw new Error('设备注册回执运行代无效');
       this.subscriptionReference = { endpoint: new URL(subscription.endpoint).href, id: body.id };
       this.publish({ registered: true, needsResubscribe: false });
-      await this.send({ type: 'APPLY_STATE', state });
+      await this.send({ type: 'SYNC' });
     } catch (error) { this.fail(error); }
     finally { this.busy = false; this.publish({ busy: false }); }
   }

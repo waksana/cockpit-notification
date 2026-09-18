@@ -1,6 +1,6 @@
 # 模块与宿主协作边界
 
-**本次发行：0.1.0，配套 Cockpit 0.2.3；发行不表示已部署。**
+**当前分支：增量同步试用，未发布或部署。** 线上 0.1.0 的契约见其 tag；
 宿主接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)；
 准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
 
@@ -39,8 +39,8 @@
   不按消息重复创建 store 或发 HTTP，不把未读写入本体原生数据。
 - `components` 注册 message/sessionStatus 及实际 globalNavigation/managementHeader/managementDetailHeader middleware，
   使用基础 props 的身份、完成事实、正文 bodyRef、children/adornment 组合原组件。
-- `context.state.host` 提供当前会话、前后台和连接状态；`onInvalidate` 接收既有模块变化提示。
-- 后端 `controlEvents` 观察已有会话控制投影；`invalidate()` 复用已有 SSE，
+- `context.state.host` 提供当前会话、前后台和连接状态；`onEvent` 接收本模块 payload。
+- 后端 `controlEvents` 观察已有会话控制投影；`publish(payload)` 复用已有 SSE，
   不增加 graceful 等待。
 - manifest 声明 `frontend.worker`；宿主校验并服务稳定、窄作用域 worker 资源，
   不自动注册 worker，也不申请通知权限。
@@ -67,23 +67,26 @@ Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占�
 原生问答选择独立的请求草稿，不清空或借用缓存的普通 prompt 草稿。
 这不改变 ask 的通知身份和阅读规则：核销提醒不等于回答，结束/替换仍按原生控制事实撤销提醒。
 
-## 4. 按需快照与新消息告知
+## 4. 初始化快照、连续 delta 与恢复
 
 模块后端是 U 与已读记录的权威；前端可以保留当前展示快照与必要在途状态，
 不能悄悄各自维护永久独立的计数。
 
-网页初始化、回前台、切会话与重连取完整快照；自己的批量核销直接返回新快照。
-不需要每条消息先 GET 再确认已读，不主动广播每次核销，也不后台轮询。
-其他客户端的已读可以等下一次成功同步再体现。
+网页首次初始化、重连、新代或失步时取完整快照。切换会话不请求；
+如果后台期间持续完整接收 delta，回前台也不请求。日常新增和已读通过 SSE delta 应用。
+自己的批量核销 HTTP 回执只确认请求及目标 G/R，不决定红线/计数。
+未追上目标版本时有界等待，超时才做完整恢复，不后台轮询。
 
 现有 `/events` 主要提供 session 元数据，具体聊天流服务当前可见会话。
 不能据此推断前端已收到所有 session 的最终回复 ID，更不能用活动时间变化代替计数。
-为及时发现其他会话新增 U，模块插入完成后通过已有 SSE 发送
-`module/invalidated { moduleId }` 通用状态变化提示，可见前端合并触发快照读取。
-提示不携带未读集合或聊天正文，不能用它自行增减 U。
+模块事务完成后通过已有 SSE 发送 `module/event { moduleId, payload }`。
+宿主仅限制 JSON 形状和大小、按模块身份分发，不知道未读 schema、版本或计数。
+Notification payload 描述具体 added/removed 和 fromRevision/revision；
+前端不判断原生消息是否应该计入，只应用模块后端的连续变化，计数由集合派生。
+超限事务使用模块自有同步提示获取快照，不截断增量。
 
 不为每个 session 或每条消息新开连接，避免放大 HTTP/1.1 多标签页连接池占满问题。
-状态机的完整快照、代际、旧响应和 dirty 合并规则见[网页状态机](state-machines.md#client)。
+状态机的完整快照、连续版本、查询期间缓冲和 HTTP 版本屏障见[网页状态机](state-machines.md#client)。
 
 原生最终回复与 ask 的统计只能通过固定 SDK 的公开事件核对；模块只登记本运行代的新实时事件，
 不做停机补读、不从 native home 扫盘恢复。读取 cursor 仍只是原生分页位置，不是已读状态。

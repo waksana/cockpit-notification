@@ -2,12 +2,14 @@ import { randomUUID, createECDH } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
-import type { ModuleBackend, ModuleBackendContext, ModuleResponse, NativeChatEvent, NativeObservation,
+import type { ModuleBackend, ModuleBackendContext, ModuleResponse, NativeObservation,
   ServerEvent } from '@cockpit/module-api';
 import type { PushSubscription } from 'web-push';
 import { activate } from './index.ts';
 import type { Clock, Sender } from './push.ts';
-import { parseSnapshot, type MessageKey, type Snapshot } from '../shared/protocol.ts';
+import { parseSnapshot, parseUnreadEvent, type Snapshot, type UnreadEvent } from '../shared/protocol.ts';
+
+export { key, message, observation, turn } from './native-fixtures.ts';
 
 export class FakeClock implements Clock {
   time = 1_000;
@@ -41,28 +43,6 @@ export function subscription(name = 'device'): PushSubscription {
   return { endpoint: `https://fcm.googleapis.com/fcm/send/synthetic-${name}`,
     keys: { p256dh: key.getPublicKey().toString('base64url'), auth: Buffer.alloc(16, 7).toString('base64url') } };
 }
-export const key = (nativeId: string, sessionId = 'session-a', kind: MessageKey['kind'] = 'reply'): MessageKey =>
-  ({ sessionId, kind, nativeId });
-let eventNumber = 0;
-export function observation(type: string, data: Record<string, unknown> = {}, extra: Partial<NativeChatEvent> = {},
-  sessionId = 'session-a'): NativeObservation {
-  return { sessionId, cwd: null, event: { id: `event-${++eventNumber}`, type, data, ...extra } };
-}
-export function turn(nativeId = 'reply-a', data: Record<string, unknown> = {}, sessionId = 'session-a'): NativeObservation[] {
-  return [
-    observation('assistant.turn_start', { turnId: '0' }, {}, sessionId),
-    ...message(nativeId, data, sessionId),
-    observation('assistant.turn_end', { turnId: '0' }, {}, sessionId),
-    observation('assistant.idle', {}, { ephemeral: true }, sessionId),
-  ];
-}
-export function message(nativeId = 'reply-a', data: Record<string, unknown> = {}, sessionId = 'session-a'): NativeObservation[] {
-  return [
-    observation('assistant.message_start', { messageId: nativeId }, { ephemeral: true }, sessionId),
-    observation('assistant.message_delta', { messageId: nativeId, deltaContent: 'synthetic-stream-text' }, { ephemeral: true }, sessionId),
-    observation('assistant.message', { messageId: nativeId, turnId: '0', content: 'synthetic-secret-body', ...data }, {}, sessionId),
-  ];
-}
 export function ask(requestId: string | null, sessionId = 'session-a'): ServerEvent {
   return { type: 'session/patch', sessionId,
     ask: requestId === null ? null : { requestId, question: 'synthetic-secret-question' } };
@@ -79,6 +59,8 @@ export function fixture(t: TestContext, sender?: Sender, config: Record<string, 
   const controller = new AbortController();
   const errors: unknown[] = [];
   const invalidations: Snapshot[] = [];
+  const publications: UnreadEvent[] = [];
+  const publicationStates: Snapshot[] = [];
   let backend: ModuleBackend;
   const context: ModuleBackendContext = {
     apiVersion: 1, moduleId: 'cockpit-notification', dataRoot, apiBase: '/module-api/cockpit-notification',
@@ -89,10 +71,17 @@ export function fixture(t: TestContext, sender?: Sender, config: Record<string, 
         signal: new AbortController().signal }) as ModuleResponse;
       invalidations.push(parseSnapshot(result.body));
     },
+    publish(payload) {
+      publications.push(parseUnreadEvent(payload));
+      const route = backend.routes.find(route => route.path === '/state')!;
+      const result = route.handler({ body: undefined, params: {}, headers: {}, query: {},
+        signal: new AbortController().signal }) as ModuleResponse;
+      publicationStates.push(parseSnapshot(result.body));
+    },
   };
   backend = activate(context, { clock, sender: sender ?? (async () => { throw new Error('Unexpected synthetic send'); }) });
   t.after(() => backend.dispose?.());
-  return { backend, context, clock, controller, errors, invalidations, dataRoot,
+  return { backend, context, clock, controller, errors, invalidations, publications, publicationStates, dataRoot,
     state: async () => parseSnapshot((await invoke(backend, 'GET', '/state')).body),
     emit: async (events: NativeObservation[]) => { for (const event of events) await backend.events!.handle(event); },
     control: async (event: ServerEvent) => backend.controlEvents!.handle(event),

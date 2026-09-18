@@ -64,7 +64,7 @@ function fixture() {
     setState: (next: DeviceState | null) => { state = next; } };
 }
 
-test('APPLY_STATE uses one serialized device path; normal same-generation receipts cause no GET', async () => {
+test('APPLY_STATE uses one serialized device path; same-generation complete authority causes no GET', async () => {
   const f = fixture();
   await f.worker.message({ type: 'APPLY_STATE', state: empty() }, f.client.id);
   assert.deepEqual(f.badges, [0]);
@@ -127,6 +127,8 @@ test('ordinary and stale same-generation pushes do not fetch full state or resto
   assert.equal(f.notifications[0]?.closed, false, 'without exact read proof cleanup waits for foreground reconciliation');
   assert.deepEqual(f.badges, []);
   assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.messages, [{ moduleId: 'cockpit-notification', type: 'unread/sync',
+    generation: 'generation-a', revision: 1 }]);
   await f.worker.message({ type: 'APPLY_STATE', state: empty() }, f.client.id);
   assert.equal(f.notifications[0]?.closed, true);
   assert.deepEqual(f.badges, [0]);
@@ -134,6 +136,20 @@ test('ordinary and stale same-generation pushes do not fetch full state or resto
   await f.worker.push(payload('generation-a', 3));
   assert.equal(f.badges.at(-1), 3);
   assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.messages.at(-1), { moduleId: 'cockpit-notification', type: 'unread/sync',
+    generation: 'generation-a', revision: 3 });
+});
+
+test('HTTP acknowledgement identities cannot close a card newer than the accepted complete authority', async () => {
+  const f = fixture();
+  const card = { ...payload(), revision: 3, createdRevision: 3 };
+  await f.environment.registration.showNotification('新回复', { data: card });
+  await f.worker.message({ type: 'APPLY_STATE', state: empty('generation-a', 2),
+    acknowledged: [card.key] }, f.client.id);
+  assert.equal(f.notifications[0]?.closed, false);
+  await f.worker.message({ type: 'APPLY_STATE', state: empty('generation-a', 3) }, f.client.id);
+  assert.equal(f.notifications[0]?.closed, true);
+  assert.deepEqual(f.calls, []);
 });
 
 test('unknown generation APPLY requires own fresh GET, not the incoming page snapshot', async () => {
@@ -290,7 +306,7 @@ test('messages from unknown or out-of-base clients are rejected, and HTTP/login 
   await assert.rejects(f.worker.message({ type: 'UNKNOWN' }, f.client.id), /不支持/);
 });
 
-test('a badge API failure cannot reverse read receipt cleanup; unsupported API remains graceful', async () => {
+test('a badge API failure cannot reverse authoritative snapshot cleanup; unsupported API remains graceful', async () => {
   const f = fixture();
   await f.environment.registration.showNotification('新回复', { data: payload() });
   f.environment.navigator.clearAppBadge = async () => { throw new Error('synthetic platform denial'); };

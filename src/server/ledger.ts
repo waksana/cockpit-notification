@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   MAX_IDENTITIES, MAX_UNREAD, keyId, parseKey,
-  type MessageKey, type ReadResult, type Snapshot,
+  type MessageKey, type ReadResult, type Snapshot, type UnreadDelta,
 } from '../shared/protocol.ts';
 import { BackendError } from './errors.ts';
 
@@ -9,11 +9,10 @@ export interface Entry {
   key: MessageKey;
   createdRevision: number;
 }
-export interface Change {
-  changed: boolean;
+export type Change = {
   added: Entry[];
   removed: MessageKey[];
-}
+} & ({ changed: false } | { changed: true; delta: UnreadDelta });
 const compare = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 
 export class Ledger {
@@ -55,25 +54,30 @@ export class Ledger {
     if (this.#unread.size + this.#acknowledged.size + newIdentities.size > this.#limits.identities) {
       throw new BackendError('IDENTITY_CAPACITY', 'Notification identity capacity reached; restart required', 503);
     }
-    const removed = [...retirements].filter(([id]) => this.#unread.has(id)).map(([, key]) => key);
+    const removed = [...retirements].filter(([id]) => !this.#acknowledged.has(id)).map(([, key]) => key);
+    const removedUnread = removed.filter(key => this.#unread.has(keyId(key))).length;
     const addedKeys = [...additions].filter(([id]) =>
       !this.#unread.has(id) && !this.#acknowledged.has(id) && !retirements.has(id)).map(([, key]) => key);
-    if (this.#unread.size - removed.length + addedKeys.length > this.#limits.unread) {
+    if (this.#unread.size - removedUnread + addedKeys.length > this.#limits.unread) {
       throw new BackendError('UNREAD_CAPACITY', 'Unread notification capacity reached', 503);
     }
-    const changed = addedKeys.length > 0 || [...retirements.keys()].some(id => !this.#acknowledged.has(id));
+    const changed = addedKeys.length > 0 || removed.length > 0;
     if (!changed) return { changed: false, added: [], removed: [] };
     if (this.#revision === Number.MAX_SAFE_INTEGER) {
       throw new BackendError('REVISION_CAPACITY', 'Notification revision capacity reached; restart required', 503);
     }
-    this.#revision++;
+    const fromRevision = this.#revision;
+    const revision = ++this.#revision;
     for (const [id] of retirements) {
       this.#unread.delete(id);
       this.#acknowledged.add(id);
     }
-    const added = addedKeys.map(key => ({ key, createdRevision: this.#revision }));
+    const added = addedKeys.map(key => ({ key, createdRevision: revision }));
     for (const entry of added) this.#unread.set(keyId(entry.key), entry);
-    return { changed: true, added: added.map(entry => ({ ...entry, key: { ...entry.key } })), removed };
+    return { changed: true, added: added.map(entry => ({ ...entry, key: { ...entry.key } })), removed,
+      delta: { type: 'unread/delta', generation: this.generation, fromRevision, revision,
+        added: added.map(entry => ({ ...entry.key, createdRevision: entry.createdRevision })),
+        removed: removed.map(key => ({ ...key })) } };
   }
 
   read(generation: string, keys: readonly MessageKey[]): { result: ReadResult; change: Change } {
@@ -83,7 +87,7 @@ export class Ledger {
     }
     const change = this.transition([], keys);
     const acknowledged = [...new Map(keys.map(key => [keyId(key), { ...key }])).values()];
-    return { change, result: { acknowledged, state: this.snapshot() } };
+    return { change, result: { acknowledged, generation: this.generation, revision: this.#revision } };
   }
 
   snapshot(): Snapshot {

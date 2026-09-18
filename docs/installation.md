@@ -1,15 +1,15 @@
 # 构建、配套宿主与安装
 
-**0.1.0 配套 Cockpit 0.2.3。** 源码配套宿主要求 Web API v2 的 state 服务与组件 middleware；
+**当前为 0.1.1 增量同步试用源码，尚未发布或安装。** 需要配套源码新增的通用模块事件，
+不能将已发行 Cockpit 0.2.3 视为自动支持。源码配套宿主要求 Web API v2 的 state 服务与组件 middleware；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
 准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
 不能把旧的 0.2.x 包视为自动兼容。
 前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
 本次是明确的配套升级，不提供旧 Web 插口兼容层，不修改通知后端或 worker 协议。
 
-普通安装从 [v0.1.0 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.0)
-下载 `cockpit-notification-0.1.0.tgz` 和同名 `.sha256`，执行
-`sha256sum -c cockpit-notification-0.1.0.tgz.sha256`。若资产尚未发布，不使用源码 ZIP 或旧候选包替代。
+已发行 0.1.0 的安装说明使用其 tag 文档；本分支的 delta 和回执格式不是线上版本现有行为。
+没有发布的 0.1.1 安装包，不使用旧包或源码 ZIP 冒充试用产物。
 
 ## 从源码构建
 
@@ -36,7 +36,7 @@ worker 不需要外部 CDN、动态 import 或模块私有脚本服务。
 
 ```sh
 pnpm package
-pnpm verify:package module-output/cockpit-notification-0.1.0.tgz
+pnpm verify:package module-output/cockpit-notification-0.1.1.tgz
 ```
 
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
@@ -55,7 +55,7 @@ CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建�
 ```sh
 node --import ./apps/server/node_modules/tsx/dist/loader.mjs \
   apps/server/src/module-cli.ts install \
-  /absolute/path/cockpit-notification-0.1.0.tgz --trust-local-code --enable
+  /absolute/path/cockpit-notification-0.1.1.tgz --trust-local-code --enable
 ```
 
 本体管理模块包与数据根；模块不读取或迁移 Copilot native home。

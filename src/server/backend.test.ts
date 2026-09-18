@@ -4,25 +4,28 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ServerEvent } from '@cockpit/module-api';
 import { activate } from './index.ts';
-import { parseSnapshot, type NotificationPayload, type ReadResult } from '../shared/protocol.ts';
-import { ask, fixture, flush, invoke, key, subscription, turn, observation } from './test-fixtures.ts';
+import { applyUnreadDelta, parseReadResult, parseSnapshot, type NotificationPayload } from '../shared/protocol.ts';
+import { ask, fixture, flush, invoke, key, message, subscription, turn, observation } from './test-fixtures.ts';
 import type { SendOutcome } from './push.ts';
 
-test('state/read HTTP contracts are no-store, exact, atomic and never broadcast reads', async t => {
+test('state/read HTTP contracts publish contiguous atomic deltas and return compact idempotent receipts', async t => {
   const f = fixture(t);
   const first = await invoke(f.backend, 'GET', '/state');
   assert.equal(first.headers?.['cache-control'], 'private, no-store');
   const generation = parseSnapshot(first.body).generation;
   const early = await invoke(f.backend, 'POST', '/read', { generation, keys: [key('early')] });
-  assert.equal((early.body as ReadResult).state.revision, 1);
+  assert.deepEqual(parseReadResult(early.body), { generation, revision: 1, acknowledged: [key('early')] });
+  assert.deepEqual(f.publications, [
+    { type: 'unread/delta', generation, fromRevision: 0, revision: 1, added: [], removed: [key('early')] },
+  ]);
   assert.equal(f.invalidations.length, 0);
   await f.emit(turn('early'));
   assert.equal((await f.state()).total, 0);
   const events = turn('new');
   await f.emit(events);
   await f.emit(events);
-  assert.equal(f.invalidations.length, 1);
-  assert.equal(f.invalidations[0]!.total, 1);
+  assert.equal(f.publications.length, 2);
+  assert.equal(f.publicationStates[1]!.total, 1);
   const before = await f.state();
   for (const body of [
     { generation, keys: [key('new'), key('bad id')] },
@@ -40,9 +43,19 @@ test('state/read HTTP contracts are no-store, exact, atomic and never broadcast 
   const results = await Promise.all([0, 1].map(() =>
     invoke(f.backend, 'POST', '/read', { generation, keys: [key('new'), key('new')] })));
   assert.deepEqual(results[0], results[1]);
-  assert.equal((results[0]!.body as ReadResult).acknowledged.length, 1);
+  assert.deepEqual(parseReadResult(results[0]!.body), { generation, revision: 3, acknowledged: [key('new')] });
   assert.equal((await f.state()).total, 0);
-  assert.equal(f.invalidations.length, 1);
+  assert.equal(f.invalidations.length, 0);
+  assert.equal(f.publications.length, 3);
+  let replica = parseSnapshot(first.body);
+  for (const [index, event] of f.publications.entries()) {
+    assert.equal(event.type, 'unread/delta');
+    if (event.type !== 'unread/delta') throw new Error('Expected a delta');
+    replica = applyUnreadDelta(replica, event);
+    assert.deepEqual(replica, f.publicationStates[index]);
+  }
+  assert.deepEqual(replica, await f.state());
+  assert.equal(f.errors.length, 0);
 });
 
 test('restarted backend ignores durable historical views and only counts a fresh matching stream', async t => {
@@ -51,7 +64,7 @@ test('restarted backend ignores durable historical views and only counts a fresh
   assert.ok(f.backend.events!.types.includes('assistant.message_delta'));
   await f.emit(turn('before-restart', { phase: 'final_answer' }));
   f.backend.dispose?.();
-  const restarted = activate({ ...f.context, signal: new AbortController().signal, invalidate() {} },
+  const restarted = activate({ ...f.context, signal: new AbortController().signal, publish() {} },
     { clock: f.clock, sender: async () => 'ACCEPTED' });
   t.after(() => restarted.dispose?.());
   for (const phase of [undefined, 'final_answer']) {
@@ -82,13 +95,77 @@ test('host ask add/null/replacement use requestId and retire instead of fabricat
   assert.equal((await f.state()).total, 0);
   await f.control(ask('a'));
   assert.equal((await f.state()).total, 0);
-  assert.equal(f.invalidations.length, 3);
+  assert.equal(f.publications.length, 3);
+  assert.equal(f.invalidations.length, 0);
+  assert.deepEqual(f.publications[1], {
+    type: 'unread/delta', generation: (await f.state()).generation, fromRevision: 1, revision: 2,
+    added: [{ ...key('b', 'session-a', 'ask'), createdRevision: 2 }], removed: [key('a', 'session-a', 'ask')],
+  });
   await f.control({ type: 'session/added', session: {
     sessionId: 'added-session', ask: { requestId: 'added-ask', question: 'synthetic-secret-question' },
   } } as ServerEvent);
   assert.equal((await f.state()).total, 1);
   await f.control({ type: 'session/patch', sessionId: 'added-session', title: 'unchanged-ask' });
   assert.equal((await f.state()).total, 1);
+});
+
+test('publication failures are reported after commit while READ receipts remain usable for reconciliation', async t => {
+  let sends = 0;
+  const f = fixture(t, async () => { sends++; return 'ACCEPTED'; });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  const publish = f.context.publish;
+  let attempts = 0;
+  f.context.publish = () => { attempts++; throw new Error('synthetic-secret-publisher-failure'); };
+  await f.emit(turn('committed'));
+  const before = await f.state();
+  assert.equal(before.total, 1);
+  assert.equal(before.revision, 1);
+  const response = await invoke(f.backend, 'POST', '/read', { generation: before.generation, keys: [key('committed')] });
+  const receipt = parseReadResult(response.body);
+  assert.deepEqual(receipt, { generation: before.generation, revision: 2, acknowledged: [key('committed')] });
+  assert.equal((await f.state()).total, 0);
+  assert.equal((await f.state()).revision, receipt.revision);
+  assert.deepEqual((await invoke(f.backend, 'POST', '/read', {
+    generation: before.generation, keys: [key('committed')],
+  })).body, receipt);
+  assert.equal(attempts, 2);
+  assert.equal(f.errors.length, 2);
+  for (const error of f.errors) {
+    assert.equal((error as { code: string }).code, 'PUBLICATION_FAILED');
+    assert.ok(!String(error).includes('synthetic-secret'));
+  }
+  await f.clock.advance(3000);
+  assert.equal(sends, 0);
+  f.context.publish = publish;
+  await f.emit(turn('after-gap'));
+  assert.deepEqual(f.publications, [{
+    type: 'unread/delta', generation: before.generation, fromRevision: 2, revision: 3,
+    added: [{ ...key('after-gap'), createdRevision: 3 }], removed: [],
+  }]);
+  assert.equal(f.invalidations.length, 0);
+});
+
+test('oversized NEW and READ batches publish one sync checkpoint each, with no truncation or extra channel', async t => {
+  const f = fixture(t);
+  const keys = Array.from({ length: 128 }, (_, index) => key(`${index}:${'界'.repeat(196)}`));
+  await f.emit([
+    observation('assistant.turn_start', { turnId: '0' }),
+    ...keys.flatMap(item => message(item.nativeId, { phase: 'final_answer', apiCallId: 'x'.repeat(488) })),
+    ...turn().slice(-2),
+  ]);
+  const snapshot = await f.state();
+  assert.equal(snapshot.total, 128);
+  assert.equal(snapshot.revision, 1);
+  assert.deepEqual(f.publications, [{ type: 'unread/sync', generation: snapshot.generation, revision: 1 }]);
+  const read = await invoke(f.backend, 'POST', '/read', { generation: snapshot.generation, keys });
+  assert.deepEqual(parseReadResult(read.body), { generation: snapshot.generation, revision: 2, acknowledged: keys });
+  assert.deepEqual(f.publications[1], { type: 'unread/sync', generation: snapshot.generation, revision: 2 });
+  assert.equal((await f.state()).total, 0);
+  assert.equal(f.clock.timers.size, 0);
+  await invoke(f.backend, 'POST', '/read', { generation: snapshot.generation, keys });
+  assert.equal(f.publications.length, 2);
+  assert.equal(f.invalidations.length, 0);
+  assert.equal(f.errors.length, 0);
 });
 
 test('session deletion/rewind retire current and staged reminders; compaction does not', async t => {
@@ -240,7 +317,7 @@ test('subscription routes return only opaque identity and snapshot; lifecycle re
   assert.ok(!persisted.includes('early-tombstone'));
   assert.ok(!persisted.includes('synthetic-secret-body'));
   f.backend.dispose?.();
-  const restarted = activate({ ...f.context, signal: new AbortController().signal, invalidate() {} },
+  const restarted = activate({ ...f.context, signal: new AbortController().signal, publish() {} },
     { clock: f.clock, sender: async () => 'ACCEPTED' });
   t.after(() => restarted.dispose?.());
   const state = parseSnapshot((await invoke(restarted, 'GET', '/state')).body);

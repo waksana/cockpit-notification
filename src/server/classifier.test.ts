@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ReplyClassifier } from './classifier.ts';
-import { FakeClock, key, message, observation, turn } from './test-fixtures.ts';
+import { key, message, observation, turn } from './native-fixtures.ts';
 import type { NativeObservation } from '@cockpit/module-api';
 
 function collect(events: NativeObservation[], classifier = new ReplyClassifier(() => 0)) {
@@ -109,6 +109,39 @@ test('abort/error, unmatched end, api-call mismatch and post-end messages fail c
   assert.deepEqual(collect([...turn().slice(0, -1), ...message('late'), turn().at(-1)!]), []);
 });
 
+test('SDK opaque apiCallId strings accept 488 characters, long Unicode, whitespace and empty values', () => {
+  for (const apiCallId of ['x'.repeat(488), '供應商🙂'.repeat(8_000), ' \t\n\r ', '', '\0']) {
+    assert.deepEqual(collect(turn('reply', { phase: 'final_answer', apiCallId })), [key('reply')]);
+    assert.deepEqual(collect([
+      observation('assistant.turn_start', { turnId: '0' }),
+      ...message('commentary', { phase: 'commentary', apiCallId }),
+      ...message('reply', { phase: 'final_answer', apiCallId }),
+      ...turn().slice(-2),
+    ]), [key('reply')]);
+    const history = turn('history', { phase: 'final_answer', apiCallId })
+      .filter(event => event.event.ephemeral !== true);
+    assert.deepEqual(collect([...history, observation('assistant.idle', {}, { ephemeral: true })]), []);
+  }
+});
+
+test('opaque apiCallId comparison stays exact and nonstrings invalidate the turn', () => {
+  for (const apiCallId of [null, 488, true, {}, [], { toString: () => 'api' }]) {
+    assert.deepEqual(collect(turn('reply', { phase: 'final_answer', apiCallId })), []);
+  }
+  for (const [first, last] of [
+    ['x'.repeat(488), `${'x'.repeat(487)}y`],
+    ['供應商🙂'.repeat(8_000), `${'供應商🙂'.repeat(8_000)}a`],
+    [' \n ', ' \t '], ['', 'a'], ['a', ''], ['\ud800', '\ud801'],
+  ]) {
+    assert.deepEqual(collect([
+      observation('assistant.turn_start', { turnId: '0' }),
+      ...message('commentary', { phase: 'commentary', apiCallId: first }),
+      ...message('reply', { phase: 'final_answer', apiCallId: last }),
+      ...turn().slice(-2),
+    ]), []);
+  }
+});
+
 test('new start replaces earlier turn and late idle cannot finalize an open turn', () => {
   assert.deepEqual(collect([...turn('old').slice(0, -1),
     ...turn('new').slice(0, -2), turn().at(-1)!, ...turn().slice(-2)]), []);
@@ -116,10 +149,10 @@ test('new start replaces earlier turn and late idle cannot finalize an open turn
 });
 
 test('stream evidence is bounded by time, number of events and per-turn messages', () => {
-  const clock = new FakeClock();
-  const classifier = new ReplyClassifier(() => clock.now());
+  let now = 1_000;
+  const classifier = new ReplyClassifier(() => now);
   classifier.observe(turn()[0]!);
-  clock.time += 15 * 60_000 + 1;
+  now += 15 * 60_000 + 1;
   assert.throws(() => classifier.observe(turn()[1]!), { code: 'CLASSIFIER_WINDOW_EXPIRED' });
   const bounded = new ReplyClassifier(() => 0, 1);
   bounded.observe(turn()[0]!);

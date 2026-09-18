@@ -1,5 +1,5 @@
 import { parseKey, parsePayload, parseSnapshot, record, MAX_BATCH } from '../shared/protocol.ts';
-import type { MessageKey, Snapshot } from '../shared/protocol.ts';
+import type { MessageKey, Snapshot, UnreadSyncHint } from '../shared/protocol.ts';
 import { appClient, discoverModuleApi, navigationUrl, notificationData, pushBadge, reconcile } from './device.ts';
 import type { DeviceState, ModuleApi, Reconciliation, VisibleNotification, WorkerConfiguration } from './device.ts';
 
@@ -122,11 +122,11 @@ export class NotificationWorker {
     if (!Array.isArray(acknowledgements) || acknowledgements.length > MAX_BATCH) throw new Error('无效的通知核销身份');
     return this.apply(state, acknowledgements.map(parseKey));
   }
-  async broadcast(type: 'INVALIDATE' | 'ERROR', error?: unknown) {
+  async broadcast(type: 'ERROR' | UnreadSyncHint, error?: unknown) {
     const clients = await this.environment.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of clients) {
       if (appClient(client.url, this.configuration)) client.postMessage({
-        moduleId: 'cockpit-notification', type,
+        moduleId: 'cockpit-notification', ...(typeof type === 'string' ? { type } : type),
         ...(error === undefined ? {} : { error: error instanceof Error ? error.message : String(error) }),
       });
     }
@@ -149,7 +149,7 @@ export class NotificationWorker {
     });
     const current = await this.environment.storage.load();
     await this.commit(pushBadge(current, payload));
-    await this.broadcast('INVALIDATE');
+    await this.broadcast({ type: 'unread/sync', generation: payload.generation, revision: payload.revision });
     // Normal pushes carry a count, not a request to fetch the whole unread set.
     if (!current || current.generation !== payload.generation) await this.sync(true);
   }

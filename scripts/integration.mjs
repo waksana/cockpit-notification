@@ -29,7 +29,7 @@ try {
   host = new ModuleHost({ hostRoot: process.env.COCKPIT_HOME, observer: {
     onNativeEvent(handler) { native.add(handler); return () => native.delete(handler); },
     onEvent(handler) { controls.add(handler); return () => controls.delete(handler); },
-  }, onInvalidate: id => changed.push(id) });
+  }, onEvent: (moduleId, payload) => changed.push({ moduleId, payload }) });
   app = Fastify();
   await host.register(app);
   const bootstrap = (await app.inject('/_modules')).json();
@@ -51,22 +51,51 @@ try {
   assert.equal(unread.total, 1);
   assert.equal(unread.sessions[0].items[0].nativeId, requestId);
   assert.equal(changed.length, 1);
+  assert.equal(changed[0].moduleId, 'cockpit-notification');
+  assert.deepEqual(changed[0].payload, {
+    type: 'unread/delta', generation: first.generation, fromRevision: 0, revision: 1,
+    added: [{ sessionId, kind: 'ask', nativeId: requestId, createdRevision: 1 }], removed: [],
+  });
   const receipt = await app.inject({ method: 'POST', url: `${base}/read`, headers,
     payload: { generation: first.generation, keys: [{ sessionId, kind: 'ask', nativeId: requestId }] } });
   assert.equal(receipt.statusCode, 200);
-  assert.equal(receipt.json().state.total, 0);
+  assert.deepEqual(receipt.json(), {
+    generation: first.generation, revision: 2, acknowledged: [{ sessionId, kind: 'ask', nativeId: requestId }],
+  });
+  assert.equal(changed.length, 2);
+  assert.deepEqual(changed[1].payload, {
+    type: 'unread/delta', generation: first.generation, fromRevision: 1, revision: 2, added: [],
+    removed: [{ sessionId, kind: 'ask', nativeId: requestId }],
+  });
   const again = await app.inject({ method: 'POST', url: `${base}/read`, headers,
     payload: { generation: first.generation, keys: [{ sessionId, kind: 'ask', nativeId: requestId }] } });
   assert.deepEqual(again.json(), receipt.json());
+  assert.equal(changed.length, 2);
   const stale = await app.inject({ method: 'POST', url: `${base}/read`, headers,
     payload: { generation: 'obsolete-generation', keys: [{ sessionId, kind: 'ask', nativeId: requestId }] } });
   assert.equal(stale.statusCode, 409);
   for (const listener of controls) await listener({ type: 'session/patch', sessionId, ask: null });
   assert.equal((await app.inject(`${base}/state`)).json().total, 0);
+  const messageId = randomUUID();
+  const emit = async (type, data, ephemeral = false) => {
+    for (const listener of native) await listener({ sessionId, cwd: null, event: {
+      id: randomUUID(), type, data, ...(ephemeral ? { ephemeral: true } : {}),
+    } });
+  };
+  await emit('assistant.turn_start', { turnId: '3' });
+  await emit('assistant.message_start', { messageId }, true);
+  await emit('assistant.message_delta', { messageId, deltaContent: 'Synthetic final' }, true);
+  await emit('assistant.message', { messageId, turnId: '3', phase: 'final_answer',
+    content: 'Synthetic final', toolRequests: [], apiCallId: 'A'.repeat(488) });
+  await emit('assistant.turn_end', { turnId: '3' });
+  await emit('assistant.idle', {}, true);
+  assert.equal((await app.inject(`${base}/state`)).json().total, 1);
+  assert.deepEqual(changed.at(-1).payload.added, [{ sessionId, kind: 'reply', nativeId: messageId, createdRevision: 3 }]);
   host.close();
   assert.equal(native.size, 0); assert.equal(controls.size, 0);
   console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
-    controlAskAndRead: true, narrowWorker: true, noNativeRuntimeOrPushService: true }));
+    controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
+    narrowWorker: true, noNativeRuntimeOrPushService: true }));
 } finally {
   host?.close();
   if (app) await app.close();

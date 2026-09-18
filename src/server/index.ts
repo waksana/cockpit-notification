@@ -6,6 +6,7 @@ import { BackendError, safeError } from './errors.ts';
 import { Ledger, type Change } from './ledger.ts';
 import { networkSender, PushScheduler, systemClock, type Clock, type Sender } from './push.ts';
 import { settings, SubscriptionStore } from './storage.ts';
+import { unreadEvent } from './unread-events.ts';
 
 export interface BackendDependencies {
   clock?: Clock;
@@ -16,6 +17,9 @@ const askKey = (sessionId: string, nativeId: string): MessageKey => ({ sessionId
 
 export function activate(context: ModuleBackendContext, dependencies: BackendDependencies = {}): ModuleBackend {
   if (context.signal.aborted) throw new BackendError('STOPPED', 'Notification module is stopped', 503);
+  if (typeof context.publish !== 'function') {
+    throw new BackendError('HOST_EVENTS_UNAVAILABLE', 'Notification deltas require the paired host module-event transport', 503);
+  }
   const config = settings(context.config);
   const clock = dependencies.clock ?? systemClock;
   const store = new SubscriptionStore(context.dataRoot, config);
@@ -34,18 +38,19 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
   function active(): void {
     if (stopped || context.signal.aborted) throw new BackendError('STOPPED', 'Notification module is stopped', 503);
   }
-  function changed(change: Change, invalidate: boolean): void {
+  function changed(change: Change): void {
     for (const key of change.removed) pushes.cancel(key);
     for (const entry of change.added) pushes.schedule(entry);
-    if (change.changed && invalidate) {
-      try { context.invalidate(); } catch { report(new BackendError('INVALIDATION_FAILED', 'Module state update hint failed', 503)); }
+    if (change.changed) {
+      try { context.publish(unreadEvent(change.delta)); }
+      catch { report(new BackendError('PUBLICATION_FAILED', 'Committed unread change could not be published', 503)); }
     }
   }
   function retireSession(sessionId: string): void {
     const staged = classifier.reset(sessionId);
     const ask = asks.get(sessionId);
     const keys = [...ledger.keysForSession(sessionId), ...staged, ...(ask ? [askKey(sessionId, ask)] : [])];
-    changed(ledger.transition([], keys), true);
+    changed(ledger.transition([], keys));
     asks.delete(sessionId);
   }
   function control(event: ServerEvent): void {
@@ -80,7 +85,7 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
       previous ? [askKey(session.sessionId, previous)] : []);
     if (next) asks.set(session.sessionId, next);
     else asks.delete(session.sessionId);
-    changed(change, true);
+    changed(change);
   }
   function route(method: ModuleRoute['method'], path: string,
     handler: (request: ModuleRequest) => ModuleResponse, json = false): ModuleRoute {
@@ -126,7 +131,7 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
         try { keys = parseKeys(request.body.keys); }
         catch { throw new BackendError('INVALID_READ_BATCH', `Read batch must contain 1 to ${MAX_BATCH} valid message keys`); }
         const { result, change } = ledger.read(request.body.generation, keys);
-        changed(change, false);
+        changed(change);
         return { body: result };
       }, true),
       route('POST', '/subscriptions', request => {
@@ -149,7 +154,7 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
       types: NATIVE_TYPES,
       handle(observation) {
         if (stopped || context.signal.aborted || removedSessions.has(observation.sessionId)) return;
-        try { changed(ledger.transition(classifier.observe(observation)), true); }
+        try { changed(ledger.transition(classifier.observe(observation))); }
         catch (error) { report(error); }
       },
     },

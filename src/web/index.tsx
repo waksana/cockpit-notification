@@ -14,8 +14,8 @@ const labels: Record<UnreadState['status'], string> = {
 
 export const activate: ActivateFrontend = context => {
   if (context.apiVersion !== 2 || context.uiVersion !== 1 || !context.state?.host ||
-      typeof context.state.register !== 'function' || !context.onInvalidate || typeof context.createPortal !== 'function') {
-    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1、state、onInvalidate 和 createPortal');
+      typeof context.state.register !== 'function' || typeof context.onEvent !== 'function' || typeof context.createPortal !== 'function') {
+    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1、state、onEvent 和 createPortal');
   }
   const React = context.react;
   const deviceState = context.state.register({
@@ -52,9 +52,12 @@ export const activate: ActivateFrontend = context => {
     if (next && !foreground) void device.refreshWorker();
     foreground = next;
   };
-  const onMessage = (event: MessageEvent) => { if (device.handleMessage(event)) store.refresh(); };
+  const onMessage = (event: MessageEvent) => {
+    const hint = device.handleMessage(event);
+    if (hint) store.hint(hint);
+  };
+  const unsubscribeEvent = context.onEvent(store.onEvent);
   const unsubscribeView = context.state.host.subscribe(updateActivity);
-  const unsubscribeInvalidate = context.onInvalidate(store.refresh);
   document.addEventListener('visibilitychange', updateActivity);
   window.addEventListener('online', updateActivity);
   window.addEventListener('offline', updateActivity);
@@ -191,7 +194,7 @@ export const activate: ActivateFrontend = context => {
     if (stopped) return;
     stopped = true;
     unsubscribeView();
-    unsubscribeInvalidate();
+    unsubscribeEvent();
     document.removeEventListener('visibilitychange', updateActivity);
     window.removeEventListener('online', updateActivity);
     window.removeEventListener('offline', updateActivity);
