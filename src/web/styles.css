@@ -1,6 +1,6 @@
 .cn-message-highlight {
   border-radius: min(var(--ck-radius), 3px);
-  transition: background-color 1600ms ease-out;
+  transition: background-color 1000ms ease-out;
 }
 .cn-message-highlight.cn-unread {
   background-color: color-mix(in srgb, color-mix(in srgb, var(--ck-color-accent) 35%, #f2c94c) 18%, transparent);

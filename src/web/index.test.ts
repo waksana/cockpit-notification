@@ -694,7 +694,7 @@ test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are
   assert.match(highlight, /background-color:\s*color-mix\(in srgb, color-mix\(in srgb, var\(--ck-color-accent\) 35%, #f2c94c\) 18%, transparent\)/);
   assert.match(highlight, /transition-duration:\s*0s/);
   assert.doesNotMatch(highlight, /margin|padding|border|position|width|height/);
-  assert.match(css, /transition:\s*background-color 1600ms ease-out/);
+  assert.match(css, /transition:\s*background-color 1000ms ease-out/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.cn-message-highlight\s*\{\s*transition: none;/);
   const label = css.match(/\.cn-unread-label\s*\{([^}]+)\}/)![1]!;
   assert.match(label, /clip-path:\s*inset\(50%\)/);
