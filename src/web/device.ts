@@ -199,11 +199,6 @@ export class DeviceBridge {
     if (!this.registration || this.initializing || this.stopped) return;
     void this.send({ type: 'APPLY_STATE', state, acknowledged: [] }).catch(error => this.fail(error));
   }
-  async sync() {
-    if (!this.registration || this.stopped) return;
-    try { await this.updateRegistration(); await this.send({ type: 'SYNC' }); this.publish({ error: null }); }
-    catch (error) { this.fail(error); }
-  }
   handleMessage(event: MessageEvent): UnreadSyncHint | false {
     if (event.source !== this.registration?.active || !record(event.data) ||
         event.data.moduleId !== 'cockpit-notification') return false;

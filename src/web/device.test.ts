@@ -257,7 +257,8 @@ test('offline worker update failure remains explicit without replacing registrat
   assert.equal(f.bridge.getSnapshot().registered, false);
   assert.equal(f.counts().registrations, 0);
   f.failUpdate(null);
-  await f.bridge.sync();
+  f.bridge.apply(state, []);
+  await f.bridge.refreshWorker();
   assert.equal(f.bridge.getSnapshot().error, null);
   assert.equal(f.updates(), 2);
 });
