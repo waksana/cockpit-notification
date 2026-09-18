@@ -31,10 +31,10 @@ function fixture() {
   const messages: unknown[] = [];
   const notifications: (VisibleNotification & { closed: boolean })[] = [];
   const shown: unknown[] = [];
-  const client: WindowClient = {
+  const client: WindowClient & { navigate(url: string): Promise<never> } = {
     id: 'client-a', url: 'https://host.test/deployment/session/previous', focused: true,
     postMessage: message => { messages.push(message); },
-    async navigate(url) { navigation.push(url); return client; },
+    async navigate(_url) { throw new TypeError("This service worker is not the client's active service worker."); },
     async focus() { navigation.push('focus'); return client; },
   };
   const environment: WorkerEnvironment = {
@@ -299,14 +299,14 @@ test('malformed payload and unsafe navigation show generic fallback, never navig
   assert.equal(f.calls.length, 0);
 });
 
-test('notification click closes only that card, navigates within app, and never acknowledges', async () => {
+test('notification click opens its target rather than navigating an uncontrolled chat, and never acknowledges', async () => {
   const f = fixture();
   await f.environment.registration.showNotification('新回复', { data: payload() });
   await f.environment.registration.showNotification('另一个提醒', { data: payload() });
   await f.worker.click(f.notifications[0]!);
   assert.equal(f.notifications[0]?.closed, true);
   assert.equal(f.notifications[1]?.closed, false);
-  assert.deepEqual(f.navigation, ['https://host.test/deployment/session/session-a', 'focus']);
+  assert.deepEqual(f.navigation, ['https://host.test/deployment/session/session-a']);
   assert.equal(f.calls.length, 0);
   assert.deepEqual(f.badges, []);
 });
@@ -331,6 +331,69 @@ test('clicking a notification for the already open session only focuses the exis
   await f.environment.registration.showNotification('新回复：对应会话', { data: payload() });
   await f.worker.click(f.notifications[0]!);
   assert.deepEqual(f.navigation, ['focus']);
+  assert.deepEqual(f.calls, []);
+});
+
+test('a matching background session wins over a focused different session without redirecting either', async () => {
+  const f = fixture();
+  const target: WindowClient = { ...f.client, id: 'matching-client',
+    url: 'https://host.test/deployment/session/session-a', focused: false,
+    async focus() { f.navigation.push('focus-matching'); return target; } };
+  f.environment.clients.matchAll = async () => [f.client, target];
+  await f.environment.registration.showNotification('新回复', { data: payload() });
+  await f.worker.click(f.notifications[0]!);
+  assert.deepEqual(f.navigation, ['focus-matching']);
+  assert.deepEqual(f.calls, []);
+});
+
+test('among already matching sessions prefer the focused one and do not focus an unrelated deployment', async () => {
+  const f = fixture();
+  f.client.url = 'https://host.test/deployment/session/session-a';
+  const background: WindowClient = { ...f.client, id: 'background', focused: false,
+    async focus() { throw new Error('Do not steal focus for a duplicate background window'); } };
+  const outside: WindowClient = { ...background, id: 'outside', focused: true,
+    url: 'https://host.test/different-app/session/session-a' };
+  f.environment.clients.matchAll = async () => [outside, background, f.client];
+  await f.environment.registration.showNotification('新回复', { data: payload() });
+  await f.worker.click(f.notifications[0]!);
+  assert.deepEqual(f.navigation, ['focus']);
+});
+
+test('click navigation failures remain explicit and never clear unread or retry opening blindly', async () => {
+  for (const outcome of ['null', 'rejected'] as const) {
+    const f = fixture();
+    let opens = 0;
+    f.environment.clients.openWindow = async () => {
+      opens++;
+      if (outcome === 'rejected') throw new Error('synthetic browser denied opening');
+      return null;
+    };
+    await f.environment.registration.showNotification('新回复', { data: payload() });
+    await assert.rejects(f.worker.click(f.notifications[0]!),
+      outcome === 'null' ? /浏览器未能打开/ : /browser denied/);
+    assert.equal(opens, 1);
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.badges, []);
+  }
+  const f = fixture();
+  f.client.url = 'https://host.test/deployment/session/session-a';
+  f.client.focus = async () => { throw new Error('synthetic focus rejected'); };
+  await f.environment.registration.showNotification('新回复', { data: payload() });
+  await assert.rejects(f.worker.click(f.notifications[0]!), /focus rejected/);
+  assert.deepEqual(f.navigation, [], 'focus failure is not permission to open another window');
+});
+
+test('untrusted click targets never navigate or open a window', async () => {
+  const f = fixture();
+  for (const data of [
+    { ...payload(), navigationTarget: 'https://outside.test/' },
+    { ...payload(), navigationTarget: 'session/session-b' },
+    { moduleId: 'another-module' },
+  ]) {
+    await f.environment.registration.showNotification('不受信任的目标', { data });
+    await assert.rejects(f.worker.click(f.notifications.at(-1)!));
+  }
+  assert.deepEqual(f.navigation, []);
   assert.deepEqual(f.calls, []);
 });
 

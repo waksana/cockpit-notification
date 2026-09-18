@@ -1,16 +1,26 @@
-# Cockpit Notification 0.1.3
+# Cockpit Notification 0.1.4
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
-GitHub Release assets for 0.1.3 have not yet been published; fixed-source installation is separate.
+GitHub Release assets for 0.1.4 have not yet been published; fixed-source installation is separate.
 Requires a paired host with generic module SSE payload support; released Cockpit 0.2.3
 does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
 The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.3 packages the Edge push compatibility fix under a new immutable version.
-It does not replace an already installed 0.1.2 digest. The earlier package
+0.1.4 packages the narrow-worker notification navigation fix under a new immutable version.
+It does not replace an already installed 0.1.3 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
+
+## Changes from 0.1.3
+
+- A notification click focuses an already open exact-session window, preferring a focused match.
+  Otherwise it calls `clients.openWindow()`; browser/PWA policy determines window reuse.
+- Never call `WindowClient.navigate()` on a chat page outside the notification worker's control.
+  An activated registration and `includeUncontrolled` enumeration do not grant that control.
+- Retain the narrow worker scope, existing subscriptions/permissions, safe target validation and
+  click-without-READ behavior. Opening/focus failures remain explicit, without blind retries,
+  scope expansion, `clients.claim()` or a second page-navigation protocol.
 
 ## Changes from 0.1.2
 

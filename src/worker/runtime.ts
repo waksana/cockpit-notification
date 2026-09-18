@@ -10,7 +10,6 @@ export interface WindowClient {
   visibilityState?: string;
   postMessage(message: unknown): void;
   focus(): Promise<WindowClient>;
-  navigate(url: string): Promise<WindowClient | null>;
 }
 export interface WorkerEnvironment {
   registration: {
@@ -162,13 +161,14 @@ export class NotificationWorker {
       throw new Error('通知不属于本模块');
     }
     const clients = (await this.environment.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .filter(client => appClient(client.url, this.configuration))
+      .filter(client => appClient(client.url, this.configuration) && client.url === target)
       .sort((a, b) => Number(Boolean(b.focused)) - Number(Boolean(a.focused)));
     const client = clients[0];
     if (client) {
-      const navigated = client.url === target ? client : await client.navigate(target);
-      if (navigated) { await navigated.focus(); return; }
+      await client.focus();
+      return;
     }
+    // Chat is outside this worker's scope; WindowClient.navigate() cannot redirect it.
     if (!await this.environment.clients.openWindow(target)) throw new Error('浏览器未能打开通知会话');
   }
 }
