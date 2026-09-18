@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.5 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
+本页记录 0.1.6 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
 配套 Cockpit 0.2.4 的通用 module/event 和 menus v1；历史 0.2.3 Release 不包含这些能力。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 
@@ -79,6 +79,8 @@ SDK 1.0.13 / bundled runtime 1.0.83 没有覆盖全部 provider 情况的严格 
 PWA 角标仍使用内部总数，关闭本设备推送不改变未读集合。
 
 会话徽标作为 sessionStatus 的末尾 children，位于原生状态文字右侧。
+徽标使用 18px 等高最小宽度、border-box 和居中 inline-flex；单个数字呈圆形，
+多位数字自然横向扩展，保留不收缩、无点击行为和原生未读可访问说明。
 配套宿主在待决策时显示“待回答”，不同时显示“回复中”和“选”；正常运行仍为“回复中”，
 错误状态仍明确显示“出错”。这些原生状态文字由宿主负责，不由通知模块猜测。
 
