@@ -1,6 +1,13 @@
-# Cockpit Notification 0.1.9
+# Cockpit Notification 0.1.10
 
-## Changes from 0.1.8
+## Changes from 0.1.9
+
+- Shorten read-removal fading to 1000ms, retaining ease-out, reduced-motion support,
+  the warm color and the 3px radius cap. Unread state semantics remain unchanged.
+
+## Earlier 0.1.9 changes from 0.1.8
+
+The 1600ms duration below describes 0.1.9; 0.1.10 shortens it to 1000ms.
 
 - Cap the theme radius at 3px for compact message highlights.
 - Shorten read-removal fading to 1600ms, retaining the classic ease-out curve
@@ -23,7 +30,7 @@ The radius and duration below describe 0.1.8 and are superseded by the refinemen
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
-This document describes the 0.1.9 source target, not proof of publication or deployment.
+This document describes the 0.1.10 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -32,8 +39,8 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.9 packages smaller corners and a 1600ms ease-out fade under a new immutable version.
-It does not replace an already installed 0.1.8 digest. The earlier package
+0.1.10 packages a 1000ms ease-out fade under a new immutable version.
+It does not replace an already installed 0.1.9 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
 ## Earlier 0.1.7 changes from 0.1.6
