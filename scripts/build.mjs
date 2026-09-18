@@ -36,7 +36,6 @@ for (const { entry, output, ...options } of configurations) {
     }
   }
 }
-packageRoots.set('lucide-static', join(root, 'node_modules/lucide-static'));
 for (const [name, directory] of packageRoots) {
   const files = (await readdir(directory)).filter(file => /^(?:licen[sc]e|copying|notice)(?:[.-].*)?$/i.test(file));
   if (name === 'http_ece' && !files.length) {

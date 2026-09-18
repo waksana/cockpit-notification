@@ -11,6 +11,7 @@
 }
 .cn-session-badge {
   display: inline-block;
+  flex: none;
   border-radius: 999px;
   padding: 0 5px;
   min-width: 16px;
@@ -21,32 +22,4 @@
   line-height: 17px;
   font-variant-numeric: tabular-nums;
 }
-.cn-global {
-  gap: 5px;
-  padding-inline: var(--ck-space);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 .cn-stale { opacity: .7; }
-.cn-state-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ck-color-accent); }
-.cn-dialog {
-  box-sizing: border-box;
-  padding: 0;
-  border: 1px solid var(--ck-color-border);
-  border-radius: var(--ck-radius);
-  width: min(560px, calc(100vw - 32px));
-  max-height: calc(100dvh - 40px);
-  overflow: auto;
-  color: var(--ck-color-text);
-  background: var(--ck-color-surface);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.6;
-  box-shadow: 0 20px 60px #0005;
-}
-.cn-dialog::backdrop { background: #0007; }
-.cn-settings { padding: 20px; }
-.cn-settings header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.cn-settings h2 { margin: 0; font-size: 18px; }
-.cn-settings footer { display: flex; flex-wrap: wrap; gap: 8px; }
-.cn-error { color: var(--ck-color-danger); overflow-wrap: anywhere; }

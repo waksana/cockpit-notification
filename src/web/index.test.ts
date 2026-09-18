@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration } from '@cockpit/module-api';
 import type { ComponentType, RefCallback } from 'react';
 import type { Snapshot, UnreadEvent } from '../shared/protocol.ts';
-import { bell } from './icons.ts';
+import type { DeviceBridge, DeviceStatus } from './device.ts';
 
 const compiled = (await build({ entryPoints: [fileURLToPath(new URL('./index.tsx', import.meta.url))],
   bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2023' })).outputFiles[0]!.text;
@@ -258,7 +258,7 @@ test('frontend registers concrete services and v2 middleware; unsupported push k
   assert.deepEqual(Object.keys(frontend).sort(), ['apiVersion', 'components', 'dispose']);
   assert.equal(frontend.apiVersion, 2);
   assert.deepEqual(frontend.components?.map(component => component.boundary),
-    ['message', 'sessionStatus', 'globalNavigation', 'managementHeader', 'managementDetailHeader']);
+    ['message', 'sessionStatus', 'globalNavigation']);
   assert.deepEqual(f.services.map(service => [service.id, service.instance.constructor.name]),
     [['device-bridge', 'DeviceBridge'], ['unread-store', 'UnreadStore']]);
   const ids = [...f.services, ...frontend.components!].map(registration => registration.id);
@@ -557,7 +557,7 @@ test('hidden, disconnected or disposed modules cannot submit presentation facts'
   assert.equal(f.calls.length, 1);
 });
 
-test('sidebar badge is noninteractive, total comes from snapshot, and settings use a body portal', async t => {
+test('sidebar badge remains noninteractive while navigation contains only the notification menu action', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
@@ -580,47 +580,57 @@ test('sidebar badge is noninteractive, total comes from snapshot, and settings u
   const globalBase = (() => null);
   const actions = frontend.components!.find(component => component.boundary === 'globalNavigation')!.wrap(globalBase);
   const hostAction = 'native and inherited global actions';
-  const outer = f.render(actions, { children: hostAction })!;
+  const nativeItem = { id: 'native.action', label: 'Native action', onClick() {} };
+  const outer = f.render(actions, { children: hostAction, items: [nativeItem] })!;
   assert.equal(outer.type, globalBase, 'global middleware introduces no placeholder container');
-  assert.equal((outer.props.children as unknown[])[0], hostAction);
-  const action = (outer.props.children as Element[])[1]!;
-  const global = f.render(action.type, action.props)!;
-  assert.equal(typeof global.type, 'symbol', 'notification button and portal compose through a Fragment');
-  const button = (global.props.children as Element[])[0]!;
-  assert.match(String(button.props['aria-label']), /1 条未读/);
-  (button.props.onClick as () => void)();
-  const open = f.render(action.type, action.props)!;
-  const settings = (open.props.children as Element[])[1]!;
-  f.unmount();
-  const portal = f.render(settings.type, settings.props)!;
-  assert.equal(portal.type, 'portal');
-  const dialog = (portal.props.children as Element[])[0]!;
-  assert.equal(dialog.type, 'dialog');
-  assert.equal(dialog.props.onCancel, undefined, 'Escape uses native dialog close and focus restoration before unmount');
-  assert.equal(typeof dialog.props.onClose, 'function');
+  assert.equal(outer.props.children, hostAction);
+  const items = outer.props.items as { label: string; disabled?: boolean }[];
+  assert.equal(items[0], nativeItem);
+  assert.equal(items.length, 2);
+  assert.equal(items[1]!.label, '开启通知（当前环境不支持）');
+  assert.equal(items[1]!.disabled, true);
+  assert.doesNotMatch(compiled, /cn-global|cn-dialog|cn-settings|cn-state-dot|createPortal|通知设置，|未读：/);
+  assert.throws(() => f.render(actions, { children: hostAction }), /菜单动作列表/);
 });
 
-test('management middleware retains the actual header props and existing actions without a substitute slot', async t => {
+test('notification menu only toggles this device and disables actions during work or unsupported enablement', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
+  await settle();
+  const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
+  const initial = bridge.getSnapshot();
+  let status: DeviceStatus = { ...initial, supported: true, error: null };
+  const toggled: string[] = [];
+  bridge.getSnapshot = () => status;
+  bridge.enable = async () => { toggled.push('enable'); };
+  bridge.disable = async () => { toggled.push('disable'); };
   const base = () => null;
-  const inherited = { type: 'button', props: { children: ['existing action'] } };
-  const onRefresh = () => {};
-  for (const boundary of ['managementHeader', 'managementDetailHeader'] as const) {
-    const middleware = frontend.components!.find(component => component.boundary === boundary)!;
-    const header = f.render(middleware.wrap(base), { section: 'mcp', item: 'Example',
-      onRefresh, actions: inherited })!;
-    assert.equal(header.type, base);
-    assert.equal(header.props.item, 'Example');
-    assert.equal(header.props.onRefresh, onRefresh);
-    const actions = header.props.actions as Element;
-    assert.equal(typeof actions.type, 'symbol');
-    assert.equal((actions.props.children as unknown[])[1], inherited);
-    f.unmount();
-  }
+  const navigation = frontend.components!.find(component => component.boundary === 'globalNavigation')!.wrap(base);
+  const toggle = () => (f.render(navigation, { items: [] })!.props.items as {
+    label: string; disabled: boolean; onClick(): void;
+  }[])[0]!;
+  assert.equal(toggle().label, '开启通知');
+  assert.equal(toggle().disabled, false);
+  assert.deepEqual(toggled, []);
+  toggle().onClick();
+  assert.deepEqual(toggled, ['enable']);
+  status = { ...status, registered: true, subscribed: true };
+  assert.equal(toggle().label, '关闭通知');
+  toggle().onClick();
+  assert.deepEqual(toggled, ['enable', 'disable']);
+  status = { ...status, busy: true };
+  assert.equal(toggle().label, '通知处理中…');
+  assert.equal(toggle().disabled, true);
+  status = { ...status, busy: false, registered: false, subscribed: true, supported: false };
+  assert.equal(toggle().disabled, false, 'a remaining browser subscription can still be disabled');
+  status = { ...status, subscribed: false };
+  assert.equal(toggle().disabled, true);
+  assert.equal(f.calls.length, 1, 'menu rendering and toggling do not refetch unread state');
+  assert.equal(frontend.components!.some(component =>
+    component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
 });
 
-test('breaking frontend ABI rejection and gutter geometry are explicit; pinned Lucide nodes retain upstream identity', async t => {
+test('breaking frontend ABI rejection and gutter geometry are explicit without removed settings styles', async t => {
   const f = fixture(t);
   for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
     await assert.rejects(async () => activate({ ...f.context, ...extra } as ModuleFrontendContext), /frontend v2/);
@@ -633,6 +643,5 @@ test('breaking frontend ABI rejection and gutter geometry are explicit; pinned L
   assert.match(redline, /left:\s*-8px/);
   assert.doesNotMatch(redline, /margin|padding/);
   assert.doesNotMatch(css, /(?:^|\n)(?:body|\.chat|\.message)/);
-  const nodes = JSON.parse(await readFile(new URL('../../node_modules/lucide-static/icon-nodes.json', import.meta.url), 'utf8'));
-  assert.deepEqual(bell, nodes.bell);
+  assert.doesNotMatch(css, /cn-global|cn-dialog|cn-settings|cn-state-dot/);
 });

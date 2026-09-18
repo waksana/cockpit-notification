@@ -18,6 +18,10 @@ The module manifest and backend API remain v1.
   gaps, oversized deltas and an uncovered receipt checkpoint recover through a full snapshot.
 - Buffer snapshot/delta races within a bound; ignore covered duplicates. Querying does not advance revision.
 - Versioned push hints do not unconditionally repeat a GET already covered by SSE.
+- The hamburger menu contains only an enable/disable action for this device's notifications.
+  Remove the standalone bell/global unread total, settings dialog and management-header entries.
+  Per-session unread badges appear after the native status text, at the right end of the row.
+  The paired host uses a single pending-answer label instead of replying plus a separate decision marker.
 - READ now broadcasts an actual ledger delta to connected clients; no extra SSE connection,
   persistent event replay, per-event ACK, background poller or clearing push is added.
 - Ask/questionnaire components no longer display unread redlines. Their message middleware still
@@ -33,16 +37,16 @@ The module manifest and backend API remain v1.
 
 - Memory-only unread identities for new primary-agent final replies and current ask requests.
   Stable identities handle repeated events, multi-client reads and reads arriving before insertion.
-- A complete snapshot followed by contiguous deltas drives reply redlines, session counts and the global total.
+- A complete snapshot followed by contiguous deltas drives reply redlines, session counts and the internal total for app badges.
   Entering a chat does not clear unread; foreground presentation is required.
-- Real message, session-status, navigation and management-header middleware without empty slots
+- Real message, session-status and navigation-menu middleware without empty slots
   or framework HTML wrappers. Notification policy and requests stay in registered module state.
 - Batch read acknowledgements and on-demand recovery; no background poller.
 - Web Push delayed by three seconds by default, with bounded sends and cancellation of unsent work.
   VAPID and device subscriptions persist privately; the unread ledger itself does not persist.
 - A narrow-scope module worker manages notification identities and supported app badges,
   without controlling Chat, proxying requests or creating an offline cache.
-- Explicit device permission/subscription actions, failure reporting, native dialog focus restoration
+- Explicit device permission/subscription actions, failure reporting, native menu focus restoration
   and correct subpixel viewport handling.
 
 ## Compatibility and limits

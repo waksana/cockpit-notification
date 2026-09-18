@@ -27,9 +27,6 @@ importers:
       esbuild:
         specifier: 0.27.3
         version: 0.27.3
-      lucide-static:
-        specifier: 1.46.0
-        version: 1.46.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -257,9 +254,6 @@ packages:
   jws@4.0.1:
     resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
 
-  lucide-static@1.46.0:
-    resolution: {integrity: sha512-kq1lP/78BxG28VG3Ut2FxMeQElereTrrRwTBeXH7+olxATGcDbsuKRB/v/VKLhPrEu8BvNi6Uh2GvbH3pQcYhg==}
-
   minimalistic-assert@1.0.1:
     resolution: {integrity: sha512-UtJcAD4yEaGtjPezWuO9wC4nwUnVH/8/Im3yEHQP4b67cXlD/Qr9hdITCU1xDbSEXg2XKNaP8jsReV7vQd00/A==}
 
@@ -464,8 +458,6 @@ snapshots:
     dependencies:
       jwa: 2.0.1
       safe-buffer: 5.2.1
-
-  lucide-static@1.46.0: {}
 
   minimalistic-assert@1.0.1: {}
 
