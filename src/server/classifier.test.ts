@@ -5,7 +5,7 @@ import { key, message, observation, turn } from './native-fixtures.ts';
 import type { NativeObservation } from '@cockpit/module-api';
 
 function collect(events: NativeObservation[], classifier = new ReplyClassifier(() => 0)) {
-  return events.flatMap(event => classifier.observe(event));
+  return events.flatMap(event => classifier.observe(event)).map(reply => reply.key);
 }
 
 test('explicit final and unphased final require live message evidence, main start, end and nonaborted ephemeral idle', () => {
@@ -13,7 +13,7 @@ test('explicit final and unphased final require live message evidence, main star
     const events = turn('reply', { phase });
     const classifier = new ReplyClassifier(() => 0);
     assert.deepEqual(collect(events.slice(0, -1), classifier), []);
-    assert.deepEqual(classifier.observe(events.at(-1)!), [key('reply')]);
+    assert.deepEqual(classifier.observe(events.at(-1)!).map(reply => reply.key), [key('reply')]);
     assert.deepEqual(collect(events, classifier), []);
     assert.deepEqual(collect(events.slice(1)), []);
     assert.deepEqual(collect([...events.slice(0, -1), observation('assistant.idle')]), []);
@@ -72,6 +72,24 @@ test('unphased split output only promotes last nonempty message, distinct explic
   assert.deepEqual(collect(explicit), [key('first'), key('last')]);
 });
 
+test('only the classified final carries a bounded excerpt, never streamed progress or reasoning', () => {
+  const classifier = new ReplyClassifier(() => 0);
+  const events = [
+    observation('assistant.turn_start', { turnId: '0' }),
+    ...message('progress', { phase: 'commentary', content: 'excluded-progress' }),
+    ...message('final', { phase: 'final_answer', content: '## 已完成\n**更新通知内容**，点击可进入会话。',
+      reasoningText: 'excluded-reasoning' }),
+    ...turn().slice(-2),
+  ];
+  assert.deepEqual(events.flatMap(event => classifier.observe(event)), [{
+    key: key('final'), summary: '已完成 更新通知内容，点击可进入会话。',
+  }]);
+  const long = new ReplyClassifier(() => 0);
+  const replies = turn('long', { content: '🙂'.repeat(20_000) }).flatMap(event => long.observe(event));
+  assert.equal(Array.from(replies[0]!.summary).length, 120);
+  assert.ok(replies[0]!.summary.endsWith('…'));
+  assert.deepEqual(long.reset('session-a'), []);
+});
 test('tool-bearing split turns invalidate earlier clean chunks and raw ask tool requests do not count', () => {
   for (const tool of [
     observation('assistant.message', { messageId: 'tool-message', content: 'tool', toolRequests: [{ name: 'view' }] }),

@@ -23,6 +23,11 @@ The module manifest and backend API remain v1.
 - Ask/questionnaire components no longer display unread redlines. Their message middleware still
   observes stable foreground presentation and reports the exact request identity as read, without answering.
   Reply redlines and unread counting/push behavior remain unchanged.
+- Notifications use "新回复：session title" or "待回答：session title" with a bounded plain-text excerpt
+  from the final reply or current question. No model summarization or history fetch is added.
+  Excerpts stay out of unread snapshots/deltas and server persistence; device notification previews may expose them.
+  Notification clicks retain exact-session navigation and never mark the session read or answer a question.
+  Browser/OS application attribution is not part of the module's title or body and cannot be removed by it.
 
 ## Preserved behavior
 

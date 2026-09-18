@@ -214,13 +214,17 @@ test('rapid READ/retire cancels delayed sends and duplicate NEW cannot reschedul
   assert.equal(f.clock.timers.size, 0);
 });
 
-test('multiple devices get one generic payload each while U remains one', async t => {
+test('multiple devices get a reply excerpt and current session title while U and SSE retain only identities', async t => {
   const sent: { id: string; payload: NotificationPayload }[] = [];
   const f = fixture(t, async (device, payload) => { sent.push({ id: device.id, payload }); return 'ACCEPTED'; });
   for (const name of ['one', 'two']) await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(name) });
-  const events = turn('new', {}, 'session/with-space%value');
+  const sessionId = 'session/with-space%value';
+  await f.control({ type: 'session/patch', sessionId, title: '更新前的标题' });
+  const events = turn('new', { content: '## 通知更新完成\n\n**点击通知**可以直接打开对应会话。',
+    reasoningText: 'synthetic-secret-reasoning', apiCallId: 'synthetic-secret-api-call' }, sessionId);
   await f.emit(events);
   await f.emit(events);
+  await f.control({ type: 'session/patch', sessionId, title: '前端调优' });
   await f.clock.advance(3000);
   assert.equal(sent.length, 2);
   assert.equal(new Set(sent.map(send => send.id)).size, 2);
@@ -228,12 +232,54 @@ test('multiple devices get one generic payload each while U remains one', async 
   for (const { payload } of sent) {
     assert.equal(payload.total, 1);
     assert.equal(payload.createdRevision, 1);
-    assert.equal(payload.title, '会话有新回复');
+    assert.equal(payload.title, '新回复：前端调优');
+    assert.equal(payload.body, '通知更新完成 点击通知可以直接打开对应会话。');
     assert.equal(payload.navigationTarget, 'session/session%2Fwith-space%25value');
     assert.ok(!JSON.stringify(payload).includes('synthetic-secret'));
   }
+  assert.ok(!JSON.stringify(await f.state()).includes('通知更新完成'));
+  assert.ok(!JSON.stringify(f.publications).includes('通知更新完成'));
+  assert.ok(!JSON.stringify(f.publications).includes('前端调优'));
   await f.clock.advance(60_000);
   assert.equal(sent.length, 2);
+});
+
+test('ask push uses the native question excerpt without replaying historical asks from metadata snapshots', async t => {
+  const sent: NotificationPayload[] = [];
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  await f.control({ type: 'snapshot', sessions: [{
+    sessionId: 'session-a', title: '发布准备', ask: { requestId: 'historical', question: '不要补发的历史提问' },
+  }] } as ServerEvent);
+  assert.equal((await f.state()).total, 0);
+  await f.control({ type: 'session/patch', sessionId: 'session-a',
+    ask: { requestId: 'current-question', question: '**选择安装方式**\n继续使用当前配置吗？', choices: ['继续', '取消'] } });
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.title, '待回答：发布准备');
+  assert.equal(sent[0]!.body, '选择安装方式 继续使用当前配置吗？');
+  assert.equal(sent[0]!.key.kind, 'ask');
+  assert.equal(sent[0]!.key.nativeId, 'current-question');
+  assert.equal(sent[0]!.navigationTarget, 'session/session-a');
+  assert.ok(!JSON.stringify(f.publications).includes('选择安装方式'));
+  assert.ok(!JSON.stringify(await f.state()).includes('选择安装方式'));
+  await f.control(ask(null));
+  assert.equal((await f.state()).total, 0);
+  assert.equal(f.errors.length, 0);
+});
+
+test('early READ prevents reply excerpts from creating a push, and missing titles use session identity', async t => {
+  const sent: NotificationPayload[] = [];
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  await invoke(f.backend, 'POST', '/read', { generation: (await f.state()).generation, keys: [key('early')] });
+  await f.emit(turn('early', { content: '已经读过，不应推送这段摘要' }));
+  await f.emit(turn('new', { content: '可以阅读的新内容' }));
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.title, '新回复：会话 session-');
+  assert.equal(sent[0]!.body, '可以阅读的新内容');
+  assert.equal(sent[0]!.key.nativeId, 'new');
 });
 
 test('no targets at due time means no backfill after device registration', async t => {

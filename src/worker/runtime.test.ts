@@ -140,6 +140,23 @@ test('ordinary and stale same-generation pushes do not fetch full state or resto
     generation: 'generation-a', revision: 3 });
 });
 
+test('push displays the server title and excerpt without appending application attribution', async () => {
+  const f = fixture();
+  const shown: { title: string; options: NotificationOptions | undefined }[] = [];
+  f.environment.registration.showNotification = async (title, options) => { shown.push({ title, options }); };
+  for (const kind of ['reply', 'ask'] as const) {
+    const notification = { ...payload(), key: { ...payload().key, kind },
+      title: `${kind === 'reply' ? '新回复' : '待回答'}：前端调优`,
+      body: kind === 'reply' ? '已更新通知内容，点击可进入会话。' : '是否继续使用当前配置？' };
+    await f.worker.push(notification);
+    const rendered = shown.at(-1)!;
+    assert.equal(rendered.title, notification.title);
+    assert.equal(rendered.options?.body, notification.body);
+    assert.deepEqual(rendered.options?.data, notification);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
 test('HTTP acknowledgement identities cannot close a card newer than the accepted complete authority', async () => {
   const f = fixture();
   const card = { ...payload(), revision: 3, createdRevision: 3 };
@@ -292,6 +309,29 @@ test('notification click closes only that card, navigates within app, and never 
   assert.deepEqual(f.navigation, ['https://host.test/deployment/session/session-a', 'focus']);
   assert.equal(f.calls.length, 0);
   assert.deepEqual(f.badges, []);
+});
+
+test('reply and ask notification clicks open their exact session when no app window exists', async () => {
+  for (const kind of ['reply', 'ask'] as const) {
+    const f = fixture();
+    f.environment.clients.matchAll = async () => [];
+    const notification = { ...payload(), key: { ...payload().key, kind, sessionId: 'session/a%value' },
+      navigationTarget: 'session/session%2Fa%25value' };
+    await f.environment.registration.showNotification('对应会话', { data: notification });
+    await f.worker.click(f.notifications[0]!);
+    assert.deepEqual(f.navigation, ['https://host.test/deployment/session/session%2Fa%25value']);
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.badges, []);
+  }
+});
+
+test('clicking a notification for the already open session only focuses the existing window', async () => {
+  const f = fixture();
+  f.client.url = 'https://host.test/deployment/session/session-a';
+  await f.environment.registration.showNotification('新回复：对应会话', { data: payload() });
+  await f.worker.click(f.notifications[0]!);
+  assert.deepEqual(f.navigation, ['focus']);
+  assert.deepEqual(f.calls, []);
 });
 
 test('messages from unknown or out-of-base clients are rejected, and HTTP/login failures are explicit', async () => {
