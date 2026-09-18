@@ -1,7 +1,7 @@
 # 首版实现与运行边界
 
-本页记录 0.1.4 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
-需要包含通用 module/event 的配套宿主源码，不能只凭 0.2.3 版本号推断该开发能力已存在。
+本页记录 0.1.5 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
+需要包含通用 module/event 和 menus v1 的配套宿主源码，不能只凭 0.2.3 版本号推断能力已存在。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 
 ## 已落定的实现选择
@@ -18,7 +18,7 @@
 | 最终回复 | 采用用户确认的结构兼容判定，见下节，不按文字关键词 |
 | 推送 | 模块后端调用标准 Web Push；等待窗口默认 3000ms，已核销的不再发送 |
 | 设备配置 | VAPID 和推送订阅与未读账本分开保存，私有模块数据目录 |
-| UI | Web API v2 state 注册、message/sessionStatus/globalNavigation middleware；菜单只开关本设备通知 |
+| UI | Web API v2 state 注册、message/sessionStatus middleware、独立 menus v1 注册；菜单只开关本设备通知 |
 | worker | 模块专属稳定 URL，narrow scope，不控制 Chat、不开离线缓存 |
 
 Web state 服务复用既有未读和设备逻辑，HTTP、版本与批量核销仍由模块管理。
@@ -69,7 +69,8 @@ SDK 1.0.13 / bundled runtime 1.0.83 没有覆盖全部 provider 情况的严格 
 
 ## 网页入口与会话行
 
-全局导航 middleware 保留宿主真实菜单的现有 `items`，只追加一个“开启通知 / 关闭通知”动作。
+`menus` 声明一个全局“开启通知 / 关闭通知”动作，不再使用 `globalNavigation` middleware。
+状态直接来自 DeviceBridge 的快照与订阅，动作仍由该服务执行；宿主拥有原生条目、分隔、排序和交互生命周期。
 没有菜单外的铃铛、全局数字或通知设置 dialog，也不增强管理页标题栏。
 设备操作进行中禁用重复点击；不支持推送时禁用开启，已有浏览器订阅仍允许关闭。
 仅浏览器创建订阅、后端登记失败不算开启成功；受支持环境继续显示“开启通知”，

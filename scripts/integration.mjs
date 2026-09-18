@@ -13,7 +13,8 @@ for (const [name, value] of Object.entries({ HOME: root, COCKPIT_HOME: join(root
   previous[name] = process.env[name]; process.env[name] = value;
 }
 const native = new Set(), controls = new Set(), changed = [];
-let app, host;
+let app, host, frontend;
+const restoreBrowser = [];
 async function writable(path) {
   const info = await lstat(path);
   if (info.isSymbolicLink()) return;
@@ -29,7 +30,10 @@ try {
   host = new ModuleHost({ hostRoot: process.env.COCKPIT_HOME, observer: {
     onNativeEvent(handler) { native.add(handler); return () => native.delete(handler); },
     onEvent(handler) { controls.add(handler); return () => controls.delete(handler); },
-  }, onEvent: (moduleId, payload) => changed.push({ moduleId, payload }) });
+  }, onEvent: (moduleId, payload) => {
+    changed.push({ moduleId, payload });
+    frontend?.receiveEvent(moduleId, payload);
+  } });
   app = Fastify();
   await host.register(app);
   const bootstrap = (await app.inject('/_modules')).json();
@@ -39,6 +43,46 @@ try {
   const worker = await app.inject(module.worker.entry);
   assert.equal(worker.statusCode, 200);
   assert.equal(worker.headers['service-worker-allowed'], './');
+  // Activate the packaged browser entry through the real paired host registry.
+  // This fixture intentionally has no PushManager/serviceWorker or real device.
+  for (const [name, value] of Object.entries({
+    document: Object.assign(new EventTarget(), { visibilityState: 'visible' }),
+    window: new EventTarget(), location: new URL('https://fixture.invalid/'),
+    navigator: { onLine: true }, isSecureContext: true, Notification: undefined, PushManager: undefined,
+  })) {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { value, configurable: true });
+    restoreBrowser.push(() => descriptor ? Object.defineProperty(globalThis, name, descriptor) : Reflect.deleteProperty(globalThis, name));
+  }
+  const { ModuleRuntime } = await import(pathToFileURL(join(hostSource, 'apps/web/src/lib/moduleRuntime.ts')).href);
+  const frontendReports = [];
+  const fetchModule = async (url, init = {}) => {
+    const resource = new URL(url);
+    const response = await app.inject({ method: init.method ?? 'GET', url: resource.pathname + resource.search,
+      headers: Object.fromEntries(new Headers(init.headers)), payload: init.body });
+    return new Response(response.body, { status: response.statusCode,
+      headers: { 'content-type': String(response.headers['content-type']) } });
+  };
+  frontend = new ModuleRuntime({
+    pageUrl: 'https://fixture.invalid/', fetch: fetchModule,
+    style: () => () => {},
+    load: async url => {
+      const response = await fetchModule(url);
+      assert.equal(response.status, 200);
+      return import(`data:text/javascript;base64,${Buffer.from(await response.text()).toString('base64')}`);
+    },
+    report: error => frontendReports.push(error),
+  });
+  await frontend.start();
+  assert.deepEqual(frontendReports, []);
+  assert.equal(frontend.getSnapshot().length, 1);
+  assert.deepEqual(frontend.getSnapshot()[0].frontend.components.map(entry => entry.boundary), ['message', 'sessionStatus']);
+  const menuSource = { isCurrent: () => true, subscribe: () => () => {} };
+  const commands = frontend.menuItems({ menu: 'global' }, menuSource, () => true);
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].label, '开启通知（当前环境不支持）');
+  assert.equal(commands[0].disabled, true);
+  assert.deepEqual(frontend.menuItems({ menu: 'session', sessionId: 'synthetic-session' }, menuSource, () => true), []);
   const base = module.apiBase;
   const headers = { 'x-cockpit-module-digest': installed.digest };
   const first = (await app.inject(`${base}/state`)).json();
@@ -91,12 +135,16 @@ try {
   await emit('assistant.idle', {}, true);
   assert.equal((await app.inject(`${base}/state`)).json().total, 1);
   assert.deepEqual(changed.at(-1).payload.added, [{ sessionId, kind: 'reply', nativeId: messageId, createdRevision: 3 }]);
+  frontend.stop();
+  assert.deepEqual(frontend.menuItems({ menu: 'global' }, menuSource, () => true), []);
+  assert.deepEqual(frontendReports, []);
   host.close();
   assert.equal(native.size, 0); assert.equal(controls.size, 0);
   console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
     controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
-    narrowWorker: true, noNativeRuntimeOrPushService: true }));
+    narrowWorker: true, packagedFrontendMenuRegistry: true, noNativeRuntimeOrPushService: true }));
 } finally {
+  frontend?.stop();
   host?.close();
   if (app) await app.close();
   await writable(root);
@@ -104,4 +152,5 @@ try {
   for (const [name, value] of Object.entries(previous)) {
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
+  for (const restore of restoreBrowser.reverse()) restore();
 }
