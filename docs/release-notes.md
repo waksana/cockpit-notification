@@ -1,18 +1,43 @@
-# Cockpit Notification 0.1.0
+# Cockpit Notification 0.1.1
 
-First module release, paired with **Cockpit 0.2.3**, Web API v2 and public UI v1.
-The exact host release source is pinned in `tooling/host-sdk.json`.
+Revisioned unread deltas are accepted product behavior, no longer a trial.
+GitHub Release assets for 0.1.1 have not yet been published; fixed-source installation is separate.
+Requires a paired host with generic module SSE payload support; released Cockpit 0.2.3
+does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
 The module manifest and backend API remain v1.
 
-## Included
+## Changes from 0.1.0
+
+- Treat provider `apiCallId` as an opaque SDK string instead of a bounded message identity.
+  Long provider IDs must not suppress an otherwise valid final reply.
+- Publish atomic unread additions/removals through the existing SSE connection as generic module payloads.
+  The host routes JSON, without interpreting unread policy or versions.
+- Read GET snapshots and contiguous deltas are the only sources of visible unread state.
+  HTTP read receipts carry acknowledged keys and a version checkpoint, not a snapshot.
+- Switching sessions no longer fetches unread state. Initialization, reconnect, generation changes,
+  gaps, oversized deltas and an uncovered receipt checkpoint recover through a full snapshot.
+- Buffer snapshot/delta races within a bound; ignore covered duplicates. Querying does not advance revision.
+- Versioned push hints do not unconditionally repeat a GET already covered by SSE.
+- READ now broadcasts an actual ledger delta to connected clients; no extra SSE connection,
+  persistent event replay, per-event ACK, background poller or clearing push is added.
+- Ask/questionnaire components no longer display unread redlines. Their message middleware still
+  observes stable foreground presentation and reports the exact request identity as read, without answering.
+  Reply redlines and unread counting/push behavior remain unchanged.
+- Notifications use "新回复：session title" or "待回答：session title" with a bounded plain-text excerpt
+  from the final reply or current question. No model summarization or history fetch is added.
+  Excerpts stay out of unread snapshots/deltas and server persistence; device notification previews may expose them.
+  Notification clicks retain exact-session navigation and never mark the session read or answer a question.
+  Browser/OS application attribution is not part of the module's title or body and cannot be removed by it.
+
+## Preserved behavior
 
 - Memory-only unread identities for new primary-agent final replies and current ask requests.
   Stable identities handle repeated events, multi-client reads and reads arriving before insertion.
-- One complete snapshot drives message redlines, session counts and the global total.
+- A complete snapshot followed by contiguous deltas drives reply redlines, session counts and the global total.
   Entering a chat does not clear unread; foreground presentation is required.
 - Real message, session-status, navigation and management-header middleware without empty slots
   or framework HTML wrappers. Notification policy and requests stay in registered module state.
-- Batch read acknowledgements and on-demand synchronization; no per-read broadcast or background poller.
+- Batch read acknowledgements and on-demand recovery; no background poller.
 - Web Push delayed by three seconds by default, with bounded sends and cancellation of unsent work.
   VAPID and device subscriptions persist privately; the unread ledger itself does not persist.
 - A narrow-scope module worker manages notification identities and supported app badges,
@@ -31,5 +56,5 @@ The module manifest and backend API remain v1.
 - Real iPhone/Android installed-PWA push delivery has not been established by the synthetic fixtures.
   Platform installation, permission, network and operating-system limits still apply.
 
-Publication uses the exact checked main CI artifact and an immutable version tag.
-Publishing does not install the module, enable a subscription, deploy or restart a service.
+Source changes do not automatically publish a Release, enable subscriptions, backfill unread history,
+deploy or restart a service. Release assets and each installation retain their exact source identities.

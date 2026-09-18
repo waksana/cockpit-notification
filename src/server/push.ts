@@ -6,6 +6,7 @@ import { keyId, type MessageKey, type NotificationPayload } from '../shared/prot
 import { BackendError } from './errors.ts';
 import type { Entry, Ledger } from './ledger.ts';
 import type { Device, SubscriptionStore } from './storage.ts';
+import { notificationTitle } from './preview.ts';
 
 export interface Clock {
   now(): number;
@@ -23,6 +24,7 @@ type Attempt = 'READY' | 'SENDING' | 'CANCELLED' | SendOutcome;
 interface Plan {
   generation: string;
   key: MessageKey;
+  summary: string;
   state: 'WAITING' | 'DISPATCHED' | 'NO_TARGETS' | 'CANCELLED';
   timer?: unknown;
   attempts: Map<string, Attempt>;
@@ -99,25 +101,28 @@ export class PushScheduler {
   #sender: Sender;
   #delay: number;
   #report: (error: BackendError) => void;
+  #sessionTitle: (sessionId: string) => string | undefined;
   #plans = new Map<string, Plan>();
   #controller = new AbortController();
   #inFlight = 0;
   #waiting: WaitingSend[] = [];
 
   constructor(ledger: Ledger, store: SubscriptionStore, clock: Clock, sender: Sender,
-    delay: number, report: (error: BackendError) => void) {
+    delay: number, report: (error: BackendError) => void,
+    sessionTitle: (sessionId: string) => string | undefined = () => undefined) {
     this.#ledger = ledger;
     this.#store = store;
     this.#clock = clock;
     this.#sender = sender;
     this.#delay = delay;
     this.#report = report;
+    this.#sessionTitle = sessionTitle;
   }
 
-  schedule(entry: Entry): void {
+  schedule(entry: Entry, summary = ''): void {
     const id = keyId(entry.key);
     if (this.#controller.signal.aborted || this.#plans.has(id)) return;
-    const plan: Plan = { generation: this.#ledger.generation, key: entry.key, state: 'WAITING', attempts: new Map() };
+    const plan: Plan = { generation: this.#ledger.generation, key: entry.key, summary, state: 'WAITING', attempts: new Map() };
     this.#plans.set(id, plan);
     plan.timer = this.#clock.setTimeout(() => { void this.#due(plan); }, this.#delay);
   }
@@ -177,6 +182,8 @@ export class PushScheduler {
   async #due(plan: Plan): Promise<void> {
     if (plan.state !== 'WAITING') return;
     plan.timer = undefined;
+    const summary = plan.summary;
+    plan.summary = '';
     if (!this.#current(plan)) { plan.state = 'CANCELLED'; return; }
     const devices = this.#store.active(this.#clock.now());
     plan.state = devices.length ? 'DISPATCHED' : 'NO_TARGETS';
@@ -195,11 +202,12 @@ export class PushScheduler {
           continue;
         }
         const snapshot = this.#ledger.snapshot();
-        const text = plan.key.kind === 'reply' ? '会话有新回复' : '有问题需要回答';
         const payload: NotificationPayload = {
           moduleId: 'cockpit-notification', generation: snapshot.generation, key: { ...plan.key },
           createdRevision: entry.createdRevision, revision: snapshot.revision, total: snapshot.total,
-          title: text, body: text, navigationTarget: `session/${encodeURIComponent(plan.key.sessionId)}`,
+          title: notificationTitle(plan.key, this.#sessionTitle(plan.key.sessionId)),
+          body: summary || (plan.key.kind === 'reply' ? '打开会话查看回复' : '打开会话查看问题'),
+          navigationTarget: `session/${encodeURIComponent(plan.key.sessionId)}`,
         };
         plan.attempts.set(device.id, 'SENDING');
         let outcome: SendOutcome;

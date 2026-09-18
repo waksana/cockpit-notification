@@ -21,8 +21,23 @@ export interface Snapshot {
 }
 export interface ReadResult {
   acknowledged: MessageKey[];
-  state: Snapshot;
+  generation: string;
+  revision: number;
 }
+export interface UnreadDelta {
+  type: 'unread/delta';
+  generation: string;
+  fromRevision: number;
+  revision: number;
+  added: (MessageKey & { createdRevision: number })[];
+  removed: MessageKey[];
+}
+export interface UnreadSyncHint {
+  type: 'unread/sync';
+  generation: string;
+  revision: number;
+}
+export type UnreadEvent = UnreadDelta | UnreadSyncHint;
 export interface NotificationPayload {
   moduleId: 'cockpit-notification';
   generation: string;
@@ -58,6 +73,79 @@ export function parseKeys(value: unknown): MessageKey[] {
 }
 function integer(value: unknown, max = Number.MAX_SAFE_INTEGER): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= max;
+}
+export function parseReadResult(value: unknown): ReadResult {
+  if (!record(value) || !identity(value.generation) || !integer(value.revision) ||
+      Object.keys(value).some(key => !['generation', 'revision', 'acknowledged'].includes(key))) {
+    throw new Error('Invalid read receipt');
+  }
+  const acknowledged = parseKeys(value.acknowledged);
+  if (!Array.isArray(value.acknowledged) || acknowledged.length !== value.acknowledged.length) {
+    throw new Error('Duplicate read acknowledgement');
+  }
+  return { generation: value.generation, revision: value.revision, acknowledged };
+}
+export function parseUnreadEvent(value: unknown): UnreadEvent {
+  if (!record(value) || !identity(value.generation) || !integer(value.revision)) {
+    throw new Error('Invalid unread event version');
+  }
+  const { generation, revision } = value;
+  if (value.type === 'unread/sync') {
+    if (Object.keys(value).some(key => !['type', 'generation', 'revision'].includes(key))) {
+      throw new Error('Invalid unread synchronization hint');
+    }
+    return { type: 'unread/sync', generation, revision };
+  }
+  if (value.type !== 'unread/delta' || !integer(value.fromRevision) ||
+      value.fromRevision === Number.MAX_SAFE_INTEGER || revision !== value.fromRevision + 1 ||
+      !Array.isArray(value.added) || !Array.isArray(value.removed) ||
+      value.added.length + value.removed.length > MAX_UNREAD ||
+      Object.keys(value).some(key => !['type', 'generation', 'fromRevision', 'revision', 'added', 'removed'].includes(key))) {
+    throw new Error('Invalid unread delta');
+  }
+  const seen = new Set<string>();
+  const unique = (key: MessageKey) => {
+    const id = keyId(key);
+    if (seen.has(id)) throw new Error('Conflicting unread delta identity');
+    seen.add(id);
+    return key;
+  };
+  const added = value.added.map(item => {
+    if (!record(item) || item.createdRevision !== revision) throw new Error('Invalid added unread revision');
+    const { createdRevision, ...rest } = item;
+    return { ...unique(parseKey(rest)), createdRevision: revision };
+  });
+  const removed = value.removed.map(item => unique(parseKey(item)));
+  return { type: 'unread/delta', generation, fromRevision: value.fromRevision, revision, added, removed };
+}
+
+export function applyUnreadDelta(snapshot: Snapshot, delta: UnreadDelta): Snapshot {
+  if (snapshot.generation !== delta.generation || snapshot.revision !== delta.fromRevision) {
+    throw new Error('Unread delta does not continue the current snapshot');
+  }
+  const entries = new Map(snapshot.sessions.flatMap(session => session.items.map(item => {
+    const key = { sessionId: session.sessionId, kind: item.kind, nativeId: item.nativeId };
+    return [keyId(key), { ...key, createdRevision: item.createdRevision }] as const;
+  })));
+  for (const item of delta.removed) entries.delete(keyId(item));
+  for (const item of delta.added) {
+    const id = keyId(item);
+    if (entries.has(id)) throw new Error('Unread delta re-adds an existing identity');
+    entries.set(id, item);
+  }
+  if (entries.size > MAX_UNREAD) throw new Error('Unread delta exceeds capacity');
+  const sessions = new Map<string, Snapshot['sessions'][number]>();
+  for (const item of [...entries.values()].sort((a, b) => keyId(a).localeCompare(keyId(b)))) {
+    let session = sessions.get(item.sessionId);
+    if (!session) {
+      session = { sessionId: item.sessionId, count: 0, items: [] };
+      sessions.set(item.sessionId, session);
+    }
+    session.items.push({ kind: item.kind, nativeId: item.nativeId, createdRevision: item.createdRevision });
+    session.count++;
+  }
+  return { generation: delta.generation, revision: delta.revision, complete: true,
+    total: entries.size, sessions: [...sessions.values()] };
 }
 export function parseSnapshot(value: unknown): Snapshot {
   if (!record(value) || !identity(value.generation) || !integer(value.revision) ||

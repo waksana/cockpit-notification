@@ -44,13 +44,16 @@ test('badge derives from server total, never remaining OS notifications or dismi
   assert.equal(reconcile(newer.state, snapshot(18), []).badge, null);
 });
 
-test('ACK identities clear matching notifications even with an older attached snapshot', () => {
+test('ACK identities cannot clear a card before a complete snapshot covers its creation revision', () => {
   const card = notification(payload('ack', 'generation-a', 20, 15));
   const current = { ...device, revision: 25, total: 2 };
   const result = reconcile(current, snapshot(10), [card], [payload('ack').key]);
-  assert.deepEqual(result.close, [card]);
+  assert.deepEqual(result.close, []);
   assert.equal(result.badge, null);
   assert.equal(result.state?.revision, 25);
+  assert.deepEqual(reconcile(current, snapshot(25, ['other', 'another']), [card]).close, [card]);
+  assert.deepEqual(reconcile(current, snapshot(25, ['ack', 'other']), [card], [payload('ack').key]).close, [],
+    'HTTP ACK alone cannot contradict complete unread authority');
 });
 
 test('different-generation snapshots cannot bind without a pre-GET baseline', () => {

@@ -5,7 +5,7 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration } from '@cockpit/module-api';
 import type { ComponentType, RefCallback } from 'react';
-import type { Snapshot } from '../shared/protocol.ts';
+import type { Snapshot, UnreadEvent } from '../shared/protocol.ts';
 import { bell } from './icons.ts';
 
 const compiled = (await build({ entryPoints: [fileURLToPath(new URL('./index.tsx', import.meta.url))],
@@ -25,6 +25,8 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   let obstructed = false;
   let visible = true;
   let connected = true;
+  let sessionId = 'session-a';
+  let autoDelta = true;
   let inert = false;
   let rect = { top: 20, left: 10, right: 290, bottom: 220, height: 200, width: 280 };
   const errors: unknown[] = [];
@@ -32,6 +34,9 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   const restorers: (() => void)[] = [];
   const viewListeners = new Set<() => void>();
   let invalidate = () => {};
+  let onEvent = (_event: UnreadEvent) => {};
+  let invalidationSubscriptions = 0;
+  let eventSubscriptions = 0;
   const documentListeners = new Map<string, () => void>();
   const frames = new Map<number, FrameRequestCallback>();
   const resizes = new Set<() => void>();
@@ -137,7 +142,7 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
     },
     state: {
       host: {
-        getSnapshot: () => Object.freeze({ sessionId: 'session-a', visible, connected }),
+        getSnapshot: () => Object.freeze({ sessionId, visible, connected }),
         subscribe: (listener: () => void) => { viewListeners.add(listener); return () => viewListeners.delete(listener); },
       },
       register<Service extends object>(registration: ModuleStateRegistration<Service>) {
@@ -155,13 +160,27 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
         } };
       },
     },
-    onInvalidate: (listener: () => void) => { invalidate = listener; return () => { invalidate = () => {}; }; },
+    onInvalidate: (listener: () => void) => {
+      invalidationSubscriptions++; invalidate = listener; return () => { invalidate = () => {}; };
+    },
+    onEvent: (listener: (event: UnreadEvent) => void) => {
+      assert.equal(calls.length, 0, 'typed event subscription precedes the initial GET');
+      eventSubscriptions++;
+      onEvent = listener;
+      return () => { eventSubscriptions--; onEvent = () => {}; };
+    },
     request: async (path: string, init?: RequestInit) => {
       calls.push({ path, init });
       if (path === '/read') {
         const request = JSON.parse(String(init!.body));
+        const fromRevision = current.revision;
+        const removed = current.sessions.flatMap(session => session.items.map(item => ({
+          sessionId: session.sessionId, kind: item.kind, nativeId: item.nativeId,
+        })));
         current = { ...current, revision: current.revision + 1, total: 0, sessions: [] };
-        return Response.json({ acknowledged: request.keys, state: current });
+        if (autoDelta) onEvent({ type: 'unread/delta', generation: current.generation,
+          fromRevision, revision: current.revision, added: [], removed });
+        return Response.json({ acknowledged: request.keys, generation: current.generation, revision: current.revision });
       }
       return Response.json(current);
     },
@@ -218,6 +237,10 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
     observedElements, renderMessage, marker, Base,
     listeners: () => viewListeners.size + documentListeners.size + windowListeners.size,
     observed: () => observed, invalidate: () => invalidate(),
+    event: (value: UnreadEvent) => onEvent(value),
+    subscriptions: () => ({ events: eventSubscriptions, invalidations: invalidationSubscriptions }),
+    setAutoDelta: (value: boolean) => { autoDelta = value; },
+    setSession(value: string) { sessionId = value; for (const listener of viewListeners) listener(); },
     unmount, setFocus: (value: boolean) => { focus = value; }, setObstructed: (value: boolean) => { obstructed = value; },
     setInert: (value: boolean) => { inert = value; }, setRect: (value: typeof rect) => { rect = value; },
     resize() { for (const resize of resizes) resize(); },
@@ -251,6 +274,7 @@ test('frontend registers concrete services and v2 middleware; unsupported push k
   assert.doesNotMatch(compiled, /createRoot|react\/jsx-runtime|querySelector|localStorage|sessionStorage|module-message-decorations|module-global-actions/);
   assert.doesNotMatch(compiled, /messageDecorations|sessionBadges|surfaceVersion|context\.view/);
   assert.equal(f.calls.length, 1);
+  assert.deepEqual(f.subscriptions(), { events: 1, invalidations: 0 });
 });
 
 test('message middleware preserves inherited body refs, children, adornments and ordinary HTML props without wrappers', async t => {
@@ -330,6 +354,7 @@ test('registered state disposal is host-owned and module cleanup only unsubscrib
   frontend.dispose?.();
   f.controller.abort();
   assert.equal(f.listeners(), 0);
+  assert.equal(f.subscriptions().events, 0);
   assert.deepEqual(f.serviceDisposals, [], 'module cleanup must not invoke host-owned service disposal');
   f.disposeServices();
   f.disposeServices();
@@ -357,22 +382,87 @@ test('short visible root assistant reply reads once after stable600ms and the re
   assert.equal(f.marker(frontend), null);
 });
 
-test('ask gutter marker follows the supplied question height rather than spanning the host choice group', async t => {
+test('only typed authority events remove redlines; HTTP receipt and generic invalidation leave them unchanged', async t => {
+  const f = fixture(t);
+  f.setAutoDelta(false);
+  const frontend = await activate(f.context);
+  await settle();
+  const marker = f.marker(frontend);
+  f.frame(0); f.frame(600);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 2);
+  assert.deepEqual(f.marker(frontend), marker, 'POST receipt cannot change marker or its geometry');
+  f.invalidate();
+  assert.equal(f.calls.length, 2, 'notification does not subscribe to ordinary invalidations');
+  f.event({ type: 'unread/delta', generation: base.generation, fromRevision: 1, revision: 2,
+    added: [], removed: [{ sessionId: 'session-a', kind: 'reply', nativeId: 'reply-a' }] });
+  assert.equal(f.marker(frontend), null);
+  assert.equal(f.calls.length, 2);
+});
+
+test('module-global state persists through session changes and connected hidden delta delivery', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  f.setSession('session-b');
+  f.setSession('session-a');
+  f.setVisible(false);
+  f.event({ type: 'unread/delta', generation: base.generation, fromRevision: 1, revision: 2,
+    added: [], removed: [{ sessionId: 'session-a', kind: 'reply', nativeId: 'reply-a' }] });
+  f.setVisible(true);
+  assert.equal(f.marker(frontend), null);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.services.length, 2);
+});
+
+test('ask has no redline but preserves the component and reports its exact identity after stable presentation', async t => {
   const snapshot: Snapshot = { ...base, sessions: [{ sessionId: 'session-a', count: 1,
     items: [{ kind: 'ask', nativeId: 'host-request-42', createdRevision: 1 }] }] };
   const f = fixture(t, snapshot);
   const frontend = await activate(f.context);
   await settle();
   const ask: MessageProps = { ...props, identity: { sessionId: 'session-a', kind: 'ask', id: 'host-request-42' } };
-  const marker = f.marker(frontend, ask)!;
+  assert.equal(f.marker(frontend, ask), null);
+  const ref = { current: null as HTMLDivElement | null };
+  const children = 'native question and choices';
+  const adornment = 'inherited question adornment';
+  const result = f.renderMessage(frontend, { ...ask, bodyRef: ref, children, adornment });
+  assert.equal(result.type, f.Base);
+  assert.equal(result.props.children, children);
+  assert.equal(result.props.adornment, adornment);
+  assert.equal(ref.current, f.element);
+  assert.equal(f.observed() > 0, true);
+  f.frame(0); f.frame(599);
+  assert.equal(f.calls.length, 1);
+  f.frame(600);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls[1]!.path, '/read');
+  assert.deepEqual(JSON.parse(String(f.calls[1]!.init?.body)), {
+    generation: 'generation-a', keys: [{ sessionId: 'session-a', kind: 'ask', nativeId: 'host-request-42' }],
+  });
+  assert.equal(f.marker(frontend, ask), null);
+  assert.equal(f.calls.every(call => ['/state', '/read'].includes(call.path)), true);
+  f.frame(1200);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 2, 'removing ask decoration does not duplicate read acknowledgements');
+  f.unmount();
+  assert.equal(ref.current, null);
+});
+
+test('reply redline continues to follow the supplied body height', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const marker = f.marker(frontend)!;
   assert.deepEqual(marker.props.style, { margin: 0, height: 200, bottom: 'auto' });
-  assert.equal(marker.props['aria-label'], '未读提问');
+  assert.equal(marker.props['aria-label'], '未读消息');
   assert.equal(marker.props.role, 'img');
   assert.equal(marker.props.tabIndex, undefined);
   assert.equal(marker.props.onClick, undefined);
   f.setRect({ top: 20, left: 10, right: 290, bottom: 100, height: 80, width: 280 });
   f.resize();
-  assert.deepEqual(f.marker(frontend, ask)?.props.style, { margin: 0, height: 80, bottom: 'auto' });
+  assert.deepEqual(f.marker(frontend)?.props.style, { margin: 0, height: 80, bottom: 'auto' });
 });
 
 test('initial complete history is never read, but a mounted incomplete-to-complete root reply can ACK early', async t => {
@@ -532,7 +622,7 @@ test('management middleware retains the actual header props and existing actions
 
 test('breaking frontend ABI rejection and gutter geometry are explicit; pinned Lucide nodes retain upstream identity', async t => {
   const f = fixture(t);
-  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { state: undefined }]) {
+  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
     await assert.rejects(async () => activate({ ...f.context, ...extra } as ModuleFrontendContext), /frontend v2/);
   }
   assert.equal(f.calls.length, 0);

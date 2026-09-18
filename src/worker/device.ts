@@ -34,7 +34,7 @@ export function parseDeviceState(value: unknown): DeviceState | null {
 
 // A baseline is enumerated BEFORE the fresh GET, never after it.
 export function reconcile(current: DeviceState | null, snapshot: Snapshot,
-  notifications: VisibleNotification[], acknowledged: MessageKey[] = [],
+  notifications: VisibleNotification[], _acknowledged: MessageKey[] = [],
   baseline: VisibleNotification[] | null = null): Reconciliation {
   const switching = current?.generation !== snapshot.generation;
   if (switching && baseline === null) return { state: current, badge: null, close: [] };
@@ -57,14 +57,12 @@ export function reconcile(current: DeviceState | null, snapshot: Snapshot,
     retired: [...retired].slice(-64),
   } : { ...current!, retired: [...retired].slice(-64) };
   const unread = snapshotKeys(snapshot);
-  const ack = new Set(acknowledged.map(keyId));
   const proven = new Set(baseline ?? []);
   const close = notifications.filter(notification => {
     const data = notificationData(notification);
     if (!data) return false;
     if (data.generation === snapshot.generation) {
-      return ack.has(keyId(data.key)) ||
-        (data.createdRevision <= snapshot.revision && !unread.has(keyId(data.key)));
+      return data.createdRevision <= snapshot.revision && !unread.has(keyId(data.key));
     }
     // Only earlier proof (or this exact pre-GET object) may clear another generation.
     return current?.retired.includes(data.generation) === true || proven.has(notification) ||

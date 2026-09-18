@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ReplyClassifier } from './classifier.ts';
-import { FakeClock, key, message, observation, turn } from './test-fixtures.ts';
+import { key, message, observation, turn } from './native-fixtures.ts';
 import type { NativeObservation } from '@cockpit/module-api';
 
 function collect(events: NativeObservation[], classifier = new ReplyClassifier(() => 0)) {
-  return events.flatMap(event => classifier.observe(event));
+  return events.flatMap(event => classifier.observe(event)).map(reply => reply.key);
 }
 
 test('explicit final and unphased final require live message evidence, main start, end and nonaborted ephemeral idle', () => {
@@ -13,7 +13,7 @@ test('explicit final and unphased final require live message evidence, main star
     const events = turn('reply', { phase });
     const classifier = new ReplyClassifier(() => 0);
     assert.deepEqual(collect(events.slice(0, -1), classifier), []);
-    assert.deepEqual(classifier.observe(events.at(-1)!), [key('reply')]);
+    assert.deepEqual(classifier.observe(events.at(-1)!).map(reply => reply.key), [key('reply')]);
     assert.deepEqual(collect(events, classifier), []);
     assert.deepEqual(collect(events.slice(1)), []);
     assert.deepEqual(collect([...events.slice(0, -1), observation('assistant.idle')]), []);
@@ -72,6 +72,24 @@ test('unphased split output only promotes last nonempty message, distinct explic
   assert.deepEqual(collect(explicit), [key('first'), key('last')]);
 });
 
+test('only the classified final carries a bounded excerpt, never streamed progress or reasoning', () => {
+  const classifier = new ReplyClassifier(() => 0);
+  const events = [
+    observation('assistant.turn_start', { turnId: '0' }),
+    ...message('progress', { phase: 'commentary', content: 'excluded-progress' }),
+    ...message('final', { phase: 'final_answer', content: '## 已完成\n**更新通知内容**，点击可进入会话。',
+      reasoningText: 'excluded-reasoning' }),
+    ...turn().slice(-2),
+  ];
+  assert.deepEqual(events.flatMap(event => classifier.observe(event)), [{
+    key: key('final'), summary: '已完成 更新通知内容，点击可进入会话。',
+  }]);
+  const long = new ReplyClassifier(() => 0);
+  const replies = turn('long', { content: '🙂'.repeat(20_000) }).flatMap(event => long.observe(event));
+  assert.equal(Array.from(replies[0]!.summary).length, 120);
+  assert.ok(replies[0]!.summary.endsWith('…'));
+  assert.deepEqual(long.reset('session-a'), []);
+});
 test('tool-bearing split turns invalidate earlier clean chunks and raw ask tool requests do not count', () => {
   for (const tool of [
     observation('assistant.message', { messageId: 'tool-message', content: 'tool', toolRequests: [{ name: 'view' }] }),
@@ -109,6 +127,39 @@ test('abort/error, unmatched end, api-call mismatch and post-end messages fail c
   assert.deepEqual(collect([...turn().slice(0, -1), ...message('late'), turn().at(-1)!]), []);
 });
 
+test('SDK opaque apiCallId strings accept 488 characters, long Unicode, whitespace and empty values', () => {
+  for (const apiCallId of ['x'.repeat(488), '供應商🙂'.repeat(8_000), ' \t\n\r ', '', '\0']) {
+    assert.deepEqual(collect(turn('reply', { phase: 'final_answer', apiCallId })), [key('reply')]);
+    assert.deepEqual(collect([
+      observation('assistant.turn_start', { turnId: '0' }),
+      ...message('commentary', { phase: 'commentary', apiCallId }),
+      ...message('reply', { phase: 'final_answer', apiCallId }),
+      ...turn().slice(-2),
+    ]), [key('reply')]);
+    const history = turn('history', { phase: 'final_answer', apiCallId })
+      .filter(event => event.event.ephemeral !== true);
+    assert.deepEqual(collect([...history, observation('assistant.idle', {}, { ephemeral: true })]), []);
+  }
+});
+
+test('opaque apiCallId comparison stays exact and nonstrings invalidate the turn', () => {
+  for (const apiCallId of [null, 488, true, {}, [], { toString: () => 'api' }]) {
+    assert.deepEqual(collect(turn('reply', { phase: 'final_answer', apiCallId })), []);
+  }
+  for (const [first, last] of [
+    ['x'.repeat(488), `${'x'.repeat(487)}y`],
+    ['供應商🙂'.repeat(8_000), `${'供應商🙂'.repeat(8_000)}a`],
+    [' \n ', ' \t '], ['', 'a'], ['a', ''], ['\ud800', '\ud801'],
+  ]) {
+    assert.deepEqual(collect([
+      observation('assistant.turn_start', { turnId: '0' }),
+      ...message('commentary', { phase: 'commentary', apiCallId: first }),
+      ...message('reply', { phase: 'final_answer', apiCallId: last }),
+      ...turn().slice(-2),
+    ]), []);
+  }
+});
+
 test('new start replaces earlier turn and late idle cannot finalize an open turn', () => {
   assert.deepEqual(collect([...turn('old').slice(0, -1),
     ...turn('new').slice(0, -2), turn().at(-1)!, ...turn().slice(-2)]), []);
@@ -116,10 +167,10 @@ test('new start replaces earlier turn and late idle cannot finalize an open turn
 });
 
 test('stream evidence is bounded by time, number of events and per-turn messages', () => {
-  const clock = new FakeClock();
-  const classifier = new ReplyClassifier(() => clock.now());
+  let now = 1_000;
+  const classifier = new ReplyClassifier(() => now);
   classifier.observe(turn()[0]!);
-  clock.time += 15 * 60_000 + 1;
+  now += 15 * 60_000 + 1;
   assert.throws(() => classifier.observe(turn()[1]!), { code: 'CLASSIFIER_WINDOW_EXPIRED' });
   const bounded = new ReplyClassifier(() => 0, 1);
   bounded.observe(turn()[0]!);

@@ -64,7 +64,7 @@ function fixture() {
     setState: (next: DeviceState | null) => { state = next; } };
 }
 
-test('APPLY_STATE uses one serialized device path; normal same-generation receipts cause no GET', async () => {
+test('APPLY_STATE uses one serialized device path; same-generation complete authority causes no GET', async () => {
   const f = fixture();
   await f.worker.message({ type: 'APPLY_STATE', state: empty() }, f.client.id);
   assert.deepEqual(f.badges, [0]);
@@ -127,6 +127,8 @@ test('ordinary and stale same-generation pushes do not fetch full state or resto
   assert.equal(f.notifications[0]?.closed, false, 'without exact read proof cleanup waits for foreground reconciliation');
   assert.deepEqual(f.badges, []);
   assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.messages, [{ moduleId: 'cockpit-notification', type: 'unread/sync',
+    generation: 'generation-a', revision: 1 }]);
   await f.worker.message({ type: 'APPLY_STATE', state: empty() }, f.client.id);
   assert.equal(f.notifications[0]?.closed, true);
   assert.deepEqual(f.badges, [0]);
@@ -134,6 +136,37 @@ test('ordinary and stale same-generation pushes do not fetch full state or resto
   await f.worker.push(payload('generation-a', 3));
   assert.equal(f.badges.at(-1), 3);
   assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.messages.at(-1), { moduleId: 'cockpit-notification', type: 'unread/sync',
+    generation: 'generation-a', revision: 3 });
+});
+
+test('push displays the server title and excerpt without appending application attribution', async () => {
+  const f = fixture();
+  const shown: { title: string; options: NotificationOptions | undefined }[] = [];
+  f.environment.registration.showNotification = async (title, options) => { shown.push({ title, options }); };
+  for (const kind of ['reply', 'ask'] as const) {
+    const notification = { ...payload(), key: { ...payload().key, kind },
+      title: `${kind === 'reply' ? '新回复' : '待回答'}：前端调优`,
+      body: kind === 'reply' ? '已更新通知内容，点击可进入会话。' : '是否继续使用当前配置？' };
+    await f.worker.push(notification);
+    const rendered = shown.at(-1)!;
+    assert.equal(rendered.title, notification.title);
+    assert.equal(rendered.options?.body, notification.body);
+    assert.deepEqual(rendered.options?.data, notification);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('HTTP acknowledgement identities cannot close a card newer than the accepted complete authority', async () => {
+  const f = fixture();
+  const card = { ...payload(), revision: 3, createdRevision: 3 };
+  await f.environment.registration.showNotification('新回复', { data: card });
+  await f.worker.message({ type: 'APPLY_STATE', state: empty('generation-a', 2),
+    acknowledged: [card.key] }, f.client.id);
+  assert.equal(f.notifications[0]?.closed, false);
+  await f.worker.message({ type: 'APPLY_STATE', state: empty('generation-a', 3) }, f.client.id);
+  assert.equal(f.notifications[0]?.closed, true);
+  assert.deepEqual(f.calls, []);
 });
 
 test('unknown generation APPLY requires own fresh GET, not the incoming page snapshot', async () => {
@@ -278,6 +311,29 @@ test('notification click closes only that card, navigates within app, and never 
   assert.deepEqual(f.badges, []);
 });
 
+test('reply and ask notification clicks open their exact session when no app window exists', async () => {
+  for (const kind of ['reply', 'ask'] as const) {
+    const f = fixture();
+    f.environment.clients.matchAll = async () => [];
+    const notification = { ...payload(), key: { ...payload().key, kind, sessionId: 'session/a%value' },
+      navigationTarget: 'session/session%2Fa%25value' };
+    await f.environment.registration.showNotification('对应会话', { data: notification });
+    await f.worker.click(f.notifications[0]!);
+    assert.deepEqual(f.navigation, ['https://host.test/deployment/session/session%2Fa%25value']);
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.badges, []);
+  }
+});
+
+test('clicking a notification for the already open session only focuses the existing window', async () => {
+  const f = fixture();
+  f.client.url = 'https://host.test/deployment/session/session-a';
+  await f.environment.registration.showNotification('新回复：对应会话', { data: payload() });
+  await f.worker.click(f.notifications[0]!);
+  assert.deepEqual(f.navigation, ['focus']);
+  assert.deepEqual(f.calls, []);
+});
+
 test('messages from unknown or out-of-base clients are rejected, and HTTP/login failures are explicit', async () => {
   const f = fixture();
   await assert.rejects(f.worker.message({ type: 'SYNC' }, 'unknown'), /来源/);
@@ -290,7 +346,7 @@ test('messages from unknown or out-of-base clients are rejected, and HTTP/login 
   await assert.rejects(f.worker.message({ type: 'UNKNOWN' }, f.client.id), /不支持/);
 });
 
-test('a badge API failure cannot reverse read receipt cleanup; unsupported API remains graceful', async () => {
+test('a badge API failure cannot reverse authoritative snapshot cleanup; unsupported API remains graceful', async () => {
   const f = fixture();
   await f.environment.registration.showNotification('新回复', { data: payload() });
   f.environment.navigator.clearAppBadge = async () => { throw new Error('synthetic platform denial'); };
