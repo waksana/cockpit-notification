@@ -251,7 +251,7 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   };
 }
 
-test('frontend registers concrete services and v2 middleware; unsupported push keeps redlines working', async t => {
+test('frontend registers concrete services and v2 middleware; unsupported push keeps unread highlights working', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
@@ -266,12 +266,13 @@ test('frontend registers concrete services and v2 middleware; unsupported push k
   assert.equal(new Set(ids).size, ids.length);
   const line = f.marker(frontend);
   assert.equal(line?.type, 'span');
-  assert.equal(line?.props.className, 'cn-redline');
+  assert.equal(line?.props.className, 'cn-unread-label');
   assert.equal(line?.props.role, 'img');
   assert.equal(line?.props['aria-label'], '未读消息');
   assert.equal(line?.props['aria-hidden'], undefined);
   assert.equal(line?.props.tabIndex, undefined);
   assert.equal(line?.props.onClick, undefined);
+  assert.equal(f.renderMessage(frontend).props.className, 'cn-message-highlight cn-unread');
   assert.doesNotMatch(compiled, /createRoot|react\/jsx-runtime|querySelector|localStorage|sessionStorage|module-message-decorations|module-global-actions/);
   assert.doesNotMatch(compiled, /messageDecorations|sessionBadges|surfaceVersion|context\.view/);
   assert.equal(f.calls.length, 1);
@@ -290,13 +291,14 @@ test('message middleware preserves inherited body refs, children, adornments and
     style: { position: 'relative' as const }, onClick, 'aria-label': 'native body' } as unknown as MessageProps;
   const result = f.renderMessage(frontend, values);
   assert.equal(ref.current, f.element);
-  for (const key of ['identity', 'complete', 'children', 'className', 'style', 'onClick', 'aria-label'] as const) {
+  for (const key of ['identity', 'complete', 'children', 'style', 'onClick', 'aria-label'] as const) {
     assert.equal(result.props[key], values[key]);
   }
+  assert.equal(result.props.className, 'native-body cn-message-highlight cn-unread');
   const composed = result.props.adornment as Element;
   assert.equal(typeof composed.type, 'symbol');
   assert.equal((composed.props.children as unknown[])[0], adornment);
-  assert.equal((composed.props.children as Element[])[1]!.props.className, 'cn-redline');
+  assert.equal((composed.props.children as Element[])[1]!.props.className, 'cn-unread-label');
   assert.deepEqual(f.observedElements, [f.element]);
   assert.equal(f.renderMessage(frontend, values).props.bodyRef, result.props.bodyRef, 'ref identity is stable on ordinary rerenders');
   assert.equal(f.services.length, 2, 'renders never create services or duplicate ledger state');
@@ -381,9 +383,11 @@ test('short visible root assistant reply reads once after stable600ms and the re
     generation: 'generation-a', keys: [{ sessionId: 'session-a', kind: 'reply', nativeId: 'reply-a' }],
   });
   assert.equal(f.marker(frontend), null);
+  assert.equal(f.renderMessage(frontend).props.className, 'cn-message-highlight',
+    'the transition class stays mounted when authoritative unread state clears');
 });
 
-test('only typed authority events remove redlines; HTTP receipt and generic invalidation leave them unchanged', async t => {
+test('only typed authority events remove highlights; HTTP receipt and generic invalidation leave them unchanged', async t => {
   const f = fixture(t);
   f.setAutoDelta(false);
   const frontend = await activate(f.context);
@@ -393,11 +397,13 @@ test('only typed authority events remove redlines; HTTP receipt and generic inva
   await new Promise(resolve => setTimeout(resolve, 180));
   assert.equal(f.calls.length, 2);
   assert.deepEqual(f.marker(frontend), marker, 'POST receipt cannot change marker or its geometry');
+  assert.equal(f.renderMessage(frontend).props.className, 'cn-message-highlight cn-unread');
   f.invalidate();
   assert.equal(f.calls.length, 2, 'notification does not subscribe to ordinary invalidations');
   f.event({ type: 'unread/delta', generation: base.generation, fromRevision: 1, revision: 2,
     added: [], removed: [{ sessionId: 'session-a', kind: 'reply', nativeId: 'reply-a' }] });
   assert.equal(f.marker(frontend), null);
+  assert.equal(f.renderMessage(frontend).props.className, 'cn-message-highlight');
   assert.equal(f.calls.length, 2);
 });
 
@@ -416,7 +422,7 @@ test('module-global state persists through session changes and connected hidden 
   assert.equal(f.services.length, 2);
 });
 
-test('ask has no redline but preserves the component and reports its exact identity after stable presentation', async t => {
+test('ask has no highlight but preserves the component and reports its exact identity after stable presentation', async t => {
   const snapshot: Snapshot = { ...base, sessions: [{ sessionId: 'session-a', count: 1,
     items: [{ kind: 'ask', nativeId: 'host-request-42', createdRevision: 1 }] }] };
   const f = fixture(t, snapshot);
@@ -431,6 +437,7 @@ test('ask has no redline but preserves the component and reports its exact ident
   assert.equal(result.type, f.Base);
   assert.equal(result.props.children, children);
   assert.equal(result.props.adornment, adornment);
+  assert.equal(result.props.className, undefined);
   assert.equal(ref.current, f.element);
   assert.equal(f.observed() > 0, true);
   f.frame(0); f.frame(599);
@@ -451,19 +458,41 @@ test('ask has no redline but preserves the component and reports its exact ident
   assert.equal(ref.current, null);
 });
 
-test('reply redline continues to follow the supplied body height', async t => {
+test('reply highlight needs no body-height measurement and retains a noninteractive accessible unread label', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
   const marker = f.marker(frontend)!;
-  assert.deepEqual(marker.props.style, { margin: 0, height: 200, bottom: 'auto' });
+  assert.equal(marker.props.style, undefined);
+  assert.equal(f.renderMessage(frontend).props.className, 'cn-message-highlight cn-unread');
   assert.equal(marker.props['aria-label'], '未读消息');
   assert.equal(marker.props.role, 'img');
   assert.equal(marker.props.tabIndex, undefined);
   assert.equal(marker.props.onClick, undefined);
   f.setRect({ top: 20, left: 10, right: 290, bottom: 100, height: 80, width: 280 });
   f.resize();
-  assert.deepEqual(f.marker(frontend)?.props.style, { margin: 0, height: 80, bottom: 'auto' });
+  assert.deepEqual(f.marker(frontend), marker);
+  assert.doesNotMatch(compiled, /ResizeObserver/);
+});
+
+test('highlight excludes child, user, tool, system and incomplete messages even with a matching unread identity', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  for (const values of [
+    { ...props, identity: { ...props.identity, agentId: 'child-agent' } },
+    ...(['user', 'tool', 'system'] as const).map(role => ({
+      ...props, identity: { sessionId: 'session-a', kind: 'message' as const, id: 'reply-a', role },
+    })),
+    { ...props, complete: false },
+  ]) {
+    const result = f.renderMessage(frontend, { ...values, className: 'inherited' });
+    assert.ok(!String(result.props.className).split(' ').includes('cn-unread'));
+    assert.equal(result.props.adornment, undefined);
+    if (values.complete) assert.equal(result.props.className, 'inherited');
+    f.unmount();
+  }
+  assert.equal(f.observed(), 0);
 });
 
 test('initial complete history is never read, but a mounted incomplete-to-complete root reply can ACK early', async t => {
@@ -650,7 +679,7 @@ test('session badge uses equal minimum dimensions and centered content without f
   assert.match(badge, /line-height:\s*1;/);
 });
 
-test('breaking frontend ABI rejection and gutter geometry are explicit without removed settings styles', async t => {
+test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are explicit', async t => {
   const f = fixture(t);
   for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { menuVersion: undefined }, { menuVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
     await assert.rejects(async () => activate({ ...f.context, ...extra } as ModuleFrontendContext), /frontend v2/);
@@ -658,10 +687,15 @@ test('breaking frontend ABI rejection and gutter geometry are explicit without r
   assert.equal(f.calls.length, 0);
   assert.equal(f.services.length, 0);
   const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
-  const redline = css.match(/\.cn-redline\s*\{([^}]+)\}/)![1]!;
-  assert.match(redline, /position:\s*absolute/);
-  assert.match(redline, /left:\s*-8px/);
-  assert.doesNotMatch(redline, /margin|padding/);
+  const highlight = css.match(/\.cn-message-highlight\.cn-unread\s*\{([^}]+)\}/)![1]!;
+  assert.match(highlight, /background-color:\s*color-mix\(in srgb, var\(--ck-color-accent\) 8%, transparent\)/);
+  assert.doesNotMatch(highlight, /margin|padding|border|position|width|height/);
+  assert.match(css, /transition:\s*background-color 200ms ease-out/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.cn-message-highlight\s*\{\s*transition: none;/);
+  const label = css.match(/\.cn-unread-label\s*\{([^}]+)\}/)![1]!;
+  assert.match(label, /clip-path:\s*inset\(50%\)/);
+  assert.match(label, /pointer-events:\s*none/);
+  assert.doesNotMatch(css, /cn-redline|content-visibility/);
   assert.doesNotMatch(css, /(?:^|\n)(?:body|\.chat|\.message)/);
   assert.doesNotMatch(css, /cn-global|cn-dialog|cn-settings|cn-state-dot/);
 });
