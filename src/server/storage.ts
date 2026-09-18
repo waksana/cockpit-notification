@@ -78,7 +78,8 @@ export function validateEndpoint(value: unknown, extraHosts: readonly string[]):
       url.username || url.password || url.hash || value.includes('#') || url.port || !literalHost(url.hostname)) throw invalid();
   const host = url.hostname;
   if (host !== 'fcm.googleapis.com' && host !== 'updates.push.services.mozilla.com' &&
-      !(host.endsWith('.push.apple.com') && host.length > '.push.apple.com'.length) && !extraHosts.includes(host)) {
+      !(host.endsWith('.push.apple.com') && host.length > '.push.apple.com'.length) &&
+      !(host.endsWith('.notify.windows.com') && host.length > '.notify.windows.com'.length) && !extraHosts.includes(host)) {
     throw invalid();
   }
   if (url.href.length > 2048) throw invalid();

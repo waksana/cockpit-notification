@@ -150,7 +150,7 @@ export const activate: ActivateFrontend = context => {
       { id: 'notification-navigation', boundary: 'globalNavigation', wrap: Base => function NotificationNavigation(props) {
         const status = React.useSyncExternalStore(device.subscribe, device.getSnapshot, device.getSnapshot);
         if (!Array.isArray(props.items)) throw new Error('通知开关需要配套宿主的全局导航菜单动作列表');
-        const enabled = status.registered || status.subscribed;
+        const enabled = status.registered || (!status.supported && status.subscribed);
         const label = status.busy ? '通知处理中…' : enabled ? '关闭通知' :
           status.supported ? '开启通知' : '开启通知（当前环境不支持）';
         return <Base {...props} items={[...props.items, {

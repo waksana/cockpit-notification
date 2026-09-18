@@ -1,6 +1,6 @@
 # 参与开发
 
-当前源码版本为 0.1.2，GitHub Release 仍为 0.1.0。先阅读[产品要求](docs/requirements.md)、
+当前源码版本为 0.1.3，GitHub Release 仍为 0.1.0。先阅读[产品要求](docs/requirements.md)、
 [状态机](docs/state-machines.md)和[实现边界](docs/implementation.md)。
 未完成的平台覆盖不能因为类型或合成测试通过就宣传为已验证。
 
