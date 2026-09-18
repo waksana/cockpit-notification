@@ -1,11 +1,15 @@
 # 构建、配套宿主与安装
 
-**0.1.0 尚未发布。** 源码配套宿主要求 Web API v2 的 state 服务与组件 middleware；
+**0.1.0 配套 Cockpit 0.2.3。** 源码配套宿主要求 Web API v2 的 state 服务与组件 middleware；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
 准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
 不能把旧的 0.2.x 包视为自动兼容。
 前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
 本次是明确的配套升级，不提供旧 Web 插口兼容层，不修改通知后端或 worker 协议。
+
+普通安装从 [v0.1.0 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.0)
+下载 `cockpit-notification-0.1.0.tgz` 和同名 `.sha256`，执行
+`sha256sum -c cockpit-notification-0.1.0.tgz.sha256`。若资产尚未发布，不使用源码 ZIP 或旧候选包替代。
 
 ## 从源码构建
 
@@ -41,7 +45,8 @@ SDK、开发依赖、密钥、设备订阅或未读数据。
 源码、SDK 或 dist 在 build 后变更会使 receipt 校验失败，不手写来源凭据绕过。
 
 CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建、打包与真实宿主的合成模块接入。
-当前不配置自动 tag 发行或部署。CI artifact 不是线上已经安装的证明。
+首版由维护者将已通过 main CI 的原始 artifact 发布到固定 tag，不重新构建；
+具体来源核对见[版本发行](releases.md)。当前没有自动部署，CI artifact 不是线上已经安装的证明。
 
 ## 安装
 

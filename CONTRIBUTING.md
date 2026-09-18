@@ -1,6 +1,6 @@
 # 参与开发
 
-当前处于 0.1.0 源码开发阶段。先阅读[产品要求](docs/requirements.md)、
+当前版本为 0.1.0。先阅读[产品要求](docs/requirements.md)、
 [状态机](docs/state-machines.md)和[实现边界](docs/implementation.md)。
 未完成的平台覆盖不能因为类型或合成测试通过就宣传为已验证。
 
@@ -33,5 +33,5 @@
 一方源码按 `GPL-3.0-only` 标注，保留 [LICENSE](LICENSE)。
 引入第三方包或资源时核对固定版本并保留许可，不能因为宿主已有某依赖就假定模块包无需声明。
 
-包格式、验证命令与 CI 见构建指南；当前无自动 Release/tag/deploy。
+包格式、验证命令与 CI 见构建指南；发行遵循[固定来源流程](docs/releases.md)，当前无自动部署。
 合并、发布、安装和运行生效分别报告，前一步不是后一步的自动授权。

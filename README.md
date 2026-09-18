@@ -3,7 +3,9 @@
 Cockpit 的独立未读与通知模块：明确记录每一条未读消息，让消息旁的标记、会话数字、
 全站总数、PWA 角标及对应推送使用同一份状态。
 
-**当前为 0.1.0 开发源码，尚未发布或安装。** 需要配套宿主的 Web API v2、
+**本次发行版本为 0.1.0，配套 Cockpit 0.2.3。** 安装包以
+[v0.1.0 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.0) 的资产为准，
+发布不表示已安装。需要配套宿主的 Web API v2、
 公共 UI v1 和窄作用域 worker；旧 Web 插口不保留兼容层。
 包/后端 API 仍为 v1，本次 Web 迁移不改变后端或 worker 协议。
 状态契约见[状态机](docs/state-machines.md)，实际能力与平台边界见[首版实现](docs/implementation.md)。
@@ -33,13 +35,14 @@ Cockpit 的独立未读与通知模块：明确记录每一条未读消息，让
 本模块不是消息传输服务、原生历史副本或新的 Chat 实现。宿主只按实际需要补通用插口，
 不把未读策略、推送订阅和业务记录放回本体。
 
-## 开发状态
+## 实现与发行
 
 源码提供内存未读集合、按身份幂等核销、完整快照及标准 Web Push 的模块实现，
 通过注册共享 state 服务和消息/会话/实际导航及管理标题栏的组件 middleware 接入，不创建另一套 Chat，
 不为 middleware 增加 HTML 包装或空占位容器。
 构建基线和命令见[构建与安装](docs/installation.md)。推送密钥与设备订阅私有保存，
 未读本身不落盘；真实平台投递仍受安装、授权、网络与 OS 行为限制。
+发行来源与资产规则见[版本发行](docs/releases.md)，本次摘要见[发行说明](docs/release-notes.md)。
 实现、发行、安装和服务重启分别授权，不因创建仓库自动执行。
 
 参与修改见[贡献指南](CONTRIBUTING.md)。项目采用 [GPL-3.0](LICENSE)；
