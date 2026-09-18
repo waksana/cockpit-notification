@@ -8,6 +8,16 @@ import { applyUnreadDelta, parseReadResult, parseSnapshot, type NotificationPayl
 import { ask, fixture, flush, invoke, key, message, subscription, turn, observation } from './test-fixtures.ts';
 import type { SendOutcome } from './push.ts';
 
+test('activation rejects a host without generic module events instead of accepting unsynchronized reads', t => {
+  const f = fixture(t);
+  const legacyContext = { ...f.context };
+  Reflect.deleteProperty(legacyContext, 'publish');
+  assert.throws(() => activate(legacyContext), {
+    code: 'HOST_EVENTS_UNAVAILABLE',
+    message: 'Notification deltas require the paired host module-event transport',
+  });
+});
+
 test('state/read HTTP contracts publish contiguous atomic deltas and return compact idempotent receipts', async t => {
   const f = fixture(t);
   const first = await invoke(f.backend, 'GET', '/state');
