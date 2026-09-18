@@ -3,10 +3,12 @@
 Cockpit 的独立未读与通知模块：明确记录每一条未读消息，让消息旁的标记、会话数字、
 PWA 角标及对应推送使用同一份状态。
 
-**当前源码为 0.1.5，通知开关通过宿主独立菜单注册接入。** 增量同步与精简通知界面是正式功能。GitHub Release 当前仍为 0.1.0，安装资产以
-[v0.1.0 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.0) 的资产为准，
-不能把功能确认、发布资产和某个实例安装混为一谈。0.1.5 从固定源码构建安装，
-需要配套宿主的通用模块事件通路及 `context.menuVersion === 1`，不能直接当作已发行宿主能力。
+**当前版本为 0.1.5，配套 Cockpit 0.2.4，通知开关通过宿主独立菜单注册接入。**
+增量同步与精简通知界面是正式功能。安装资产以
+[v0.1.5 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.5) 为准，
+不能把功能确认、源码提交、发布资产和某个实例安装混为一谈。
+需要宿主的通用模块事件通路及 `context.menuVersion === 1`；历史 Cockpit 0.2.3
+Release 不含这些能力，不能替代配套宿主。
 需要配套宿主的 Web API v2、
 公共 UI v1 和窄作用域 worker；旧 Web 插口不保留兼容层。
 包/宿主后端 API 仍为 v1；本次增量同步改变模块自己的核销回执和同步消息格式，需配套升级。
