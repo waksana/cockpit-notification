@@ -1,8 +1,20 @@
-# Cockpit Notification 0.1.7
+# Cockpit Notification 0.1.8
+
+## Changes from 0.1.7
+
+- Follow the host radius token for rounded unread backgrounds without changing layout.
+- Show new unread highlights immediately, blending 35% theme accent with 65% warm gold
+  (`#f2c94c`) at 18% opacity over the existing light/dark surface.
+- Retain the highlight while unread; fade over 2400ms ease-out only after authoritative
+  removal. Reduced-motion preferences still disable transitions.
+- Inspired by the [Yellow Fade Technique](https://signalvnoise.com/archives/000558.php);
+  the duration and colors here are module choices, not claims about another site's settings.
+
+## Release contract
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
-This document describes the 0.1.7 source target, not proof of publication or deployment.
+This document describes the 0.1.8 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -11,11 +23,14 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.7 packages the theme-aware unread background under a new immutable version.
-It does not replace an already installed 0.1.6 digest. The earlier package
+0.1.8 packages rounded warm-yellow highlights and a slower fade under a new immutable version.
+It does not replace an already installed 0.1.7 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
-## Changes from 0.1.6
+## Earlier 0.1.7 changes from 0.1.6
+
+The following appearance settings describe 0.1.7; 0.1.8 supersedes its color and duration
+with the refinement above while retaining its integration and state semantics.
 
 - Replace the out-of-bounds reply redline with a subtle background painted inside the actual
   message body, only for completed primary-agent replies known to be unread.

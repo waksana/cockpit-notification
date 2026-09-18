@@ -1,6 +1,6 @@
 # 模块与宿主协作边界
 
-**0.1.7 改用正文内未读底色，沿用独立菜单项注册、增量同步与精简入口。** 0.1.0 的契约见其 tag；
+**0.1.8 使用正文内暖黄色圆角未读底色，沿用独立菜单项注册、增量同步与精简入口。** 0.1.0 的契约见其 tag；
 通用组件接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)，
 通用 SSE payload 通路来自 [waksana/cockpit#30](https://github.com/waksana/cockpit/pull/30)；
 准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
@@ -59,9 +59,10 @@
 让模块只关注自己尚未读的条目，不扫描完整历史，也不依赖正文私有选择器。
 
 已完成且已知未读的主 Agent 回复，通过公共 `MessageProps.className` 在实际正文内添加底色，
-使用 `--ck-color-accent` 的 8% 透明混合；保留传入的 `className` 与 `style`。
+使用 35% `--ck-color-accent` 与 65% 暖金色 `#f2c94c` 混合，再以 18% 不透明度叠加；
+保留传入的 `className` 与 `style`。
 原装饰线节点改为视觉隐藏的未读语义标签，不增加可见装饰节点。
-未读移除后底色以 200ms 淡出，`prefers-reduced-motion` 下禁用过渡。
+底色立即出现，未读移除后以 2400ms 淡出，`prefers-reduced-motion` 下禁用过渡。
 不包裹或替换正文，不增加 padding/margin，也不改变 Markdown 首末子元素的排版。
 正文内绘制避免 `content-visibility: auto` 裁剪越界装饰；不修改宿主、不退出其性能优化。
 计数数字属于附加展示，不挤掉已有会话标题或原生待回答状态。

@@ -1,8 +1,10 @@
 .cn-message-highlight {
-  transition: background-color 200ms ease-out;
+  border-radius: var(--ck-radius);
+  transition: background-color 2400ms ease-out;
 }
 .cn-message-highlight.cn-unread {
-  background-color: color-mix(in srgb, var(--ck-color-accent) 8%, transparent);
+  background-color: color-mix(in srgb, color-mix(in srgb, var(--ck-color-accent) 35%, #f2c94c) 18%, transparent);
+  transition-duration: 0s;
 }
 .cn-unread-label {
   position: absolute;
