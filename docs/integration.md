@@ -1,7 +1,7 @@
 # 模块与宿主协作边界
 
-**当前阶段：0.1.0 开发源码已接线，尚未发布或部署。**
-需要配套的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)；
+**本次发行：0.1.0，配套 Cockpit 0.2.3；发行不表示已部署。**
+宿主接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)；
 准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
 
 ## 1. 所有权
