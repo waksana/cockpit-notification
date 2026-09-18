@@ -1,9 +1,11 @@
 # Cockpit Notification 0.1.5
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
-GitHub Release assets for 0.1.5 have not yet been published; fixed-source installation is separate.
-Requires a paired host with generic module SSE payloads and menu registration v1; released Cockpit 0.2.3
-does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
+Release assets must come from the successful CI artifact for the exact tagged main commit.
+Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
+the historical Cockpit 0.2.3 Release does not provide these capabilities.
+The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
+whose APIs are included unchanged in Cockpit 0.2.4.
 The module manifest and backend API remain v1.
 
 ## Installation identity

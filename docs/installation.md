@@ -1,16 +1,20 @@
 # 构建、配套宿主与安装
 
-**0.1.5 将本设备开关迁入独立菜单项注册，可以从固定源码构建安装。** 增量同步与精简入口保持正式功能。
-需要配套源码提供的通用模块事件及菜单注册，不能将已发行 Cockpit 0.2.3 视为自动支持。
+**0.1.5 配套 Cockpit 0.2.4，将本设备开关迁入独立菜单项注册。** 增量同步与精简入口保持正式功能。
+需要宿主提供的通用模块事件及菜单注册，历史 Cockpit 0.2.3 Release 不具备这些能力。
 源码配套宿主要求 Web API v2 的 state 服务、组件 middleware 及 `context.menuVersion === 1`；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
 准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
 不能把旧的 0.2.x 包视为自动兼容。
+SDK 类型基线仍来自 pin 指定的干净 0.2.3 开发提交，不是历史 0.2.3 Release；
+Cockpit 0.2.4 包含该接口，版本发行未改变菜单类型或模块协议。
 前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
 已发行 0.1.0 的安装说明使用其 tag 文档；delta 和新回执格式不是该版本的现有能力。
-GitHub 尚未发布 0.1.5 Release 资产；固定源码产包不等于已发布 Release，不使用旧包或源码 ZIP 冒充新安装包。
+正式安装使用 [v0.1.5 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.5)
+中的 `cockpit-notification-0.1.5.tgz` 与同名 `.sha256`，下载后执行 `sha256sum -c cockpit-notification-0.1.5.tgz.sha256`。
+若资产尚未发布或下载失败，不使用旧包、CI 临时 artifact 或源码 ZIP 冒充正式安装包。
 已安装模块版本的摘要不可更换；内容改变必须使用新版本，不能覆盖原有版本的包。
 
 ## 从源码构建
