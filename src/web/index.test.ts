@@ -614,10 +614,15 @@ test('notification menu only toggles this device and disables actions during wor
   assert.deepEqual(toggled, []);
   toggle().onClick();
   assert.deepEqual(toggled, ['enable']);
+  status = { ...status, subscribed: true, registered: false, error: 'Server registration rejected' };
+  assert.equal(toggle().label, '开启通知', 'a browser-only subscription does not claim server-side enablement');
+  assert.equal(toggle().disabled, false);
+  toggle().onClick();
+  assert.deepEqual(toggled, ['enable', 'enable']);
   status = { ...status, registered: true, subscribed: true };
   assert.equal(toggle().label, '关闭通知');
   toggle().onClick();
-  assert.deepEqual(toggled, ['enable', 'disable']);
+  assert.deepEqual(toggled, ['enable', 'enable', 'disable']);
   status = { ...status, busy: true };
   assert.equal(toggle().label, '通知处理中…');
   assert.equal(toggle().disabled, true);

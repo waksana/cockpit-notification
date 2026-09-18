@@ -63,17 +63,40 @@ test('known push endpoints use exact host/suffix guards and forbid ports and cre
   for (const endpoint of [
     'https://fcm.googleapis.com/fcm/synthetic', 'https://updates.push.services.mozilla.com/wpush/synthetic',
     'https://web.push.apple.com/synthetic',
+    'https://wns2-synthetic.notify.windows.com/w/?token=synthetic-only',
+    'https://future-region.notify.windows.com/synthetic',
   ]) assert.equal(validateEndpoint(endpoint, []), endpoint);
   for (const endpoint of [
     'http://fcm.googleapis.com/x', 'https://fcm.googleapis.com:443/x', 'https://fcm.googleapis.com:8443/x',
     'https://user@fcm.googleapis.com/x', 'https://fcm.googleapis.com/x#', 'https://fcm.googleapis.com.evil.com/x',
     'https://notpush.apple.com/x', 'https://push.apple.com/x', 'https://web.push.apple.com.evil.com/x',
+    'https://notify.windows.com/x', 'https://notnotify.windows.com/x',
+    'https://wns2-synthetic.notify.windows.com.evil.com/x', 'https://wns2-synthetic.notify.windows.com./x',
+    'https://wns2-synthetic.notify.windows.com:443/x', 'https://wns2-synthetic.notify.windows.com:8443/x',
+    'http://wns2-synthetic.notify.windows.com/x', 'https://user@wns2-synthetic.notify.windows.com/x',
+    'https://wns2-synthetic.notify.windows.com/x#fragment', 'https://windows.com/x',
     'https://127.0.0.1/x', 'https://[::1]/x', 'https://localhost/x', 'https://fcm.googleapis.com./x',
     'https://fcm.googleapis.com\\@evil.com/x', `https://fcm.googleapis.com/${'x'.repeat(2048)}`,
     `https://fcm.googleapis.com/${'界'.repeat(500)}`,
   ]) assert.throws(() => validateEndpoint(endpoint, []), { code: 'INVALID_PUSH_ENDPOINT' });
   assert.equal(validateEndpoint('https://push.example.org/synthetic', ['push.example.org']),
     'https://push.example.org/synthetic');
+});
+
+test('Edge WNS subscriptions register and reload without enabling arbitrary public hosts', t => {
+  const root = directory(t);
+  const store = new SubscriptionStore(root, settings({}));
+  const endpoint = 'https://wns2-synthetic.notify.windows.com/w/?token=synthetic-only';
+  const device = { ...subscription(), endpoint };
+  const id = store.register(device, 0);
+  assert.equal(store.register(device, 0), id);
+  const restarted = new SubscriptionStore(root, settings({}));
+  assert.deepEqual(restarted.active(0).map(value => value.subscription.endpoint), [endpoint]);
+  assert.equal(restarted.registered(id, 0), true);
+  assert.throws(() => restarted.register({ ...device, endpoint: 'https://arbitrary.example.org/synthetic' }, 0),
+    { code: 'INVALID_PUSH_ENDPOINT' });
+  restarted.remove(id);
+  assert.equal(restarted.active(0).length, 0);
 });
 
 test('public-address guard blocks private, loopback, mapped and reserved DNS answers', () => {

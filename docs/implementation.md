@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.2 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
+本页记录 0.1.3 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
 需要包含通用 module/event 的配套宿主源码，不能只凭 0.2.3 版本号推断该开发能力已存在。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 
@@ -72,6 +72,8 @@ SDK 1.0.13 / bundled runtime 1.0.83 没有覆盖全部 provider 情况的严格 
 全局导航 middleware 保留宿主真实菜单的现有 `items`，只追加一个“开启通知 / 关闭通知”动作。
 没有菜单外的铃铛、全局数字或通知设置 dialog，也不增强管理页标题栏。
 设备操作进行中禁用重复点击；不支持推送时禁用开启，已有浏览器订阅仍允许关闭。
+仅浏览器创建订阅、后端登记失败不算开启成功；受支持环境继续显示“开启通知”，
+用户重试会复用已有浏览器订阅，不重复请求权限或自动注销它。
 错误走宿主通用反馈，不伪装为开关成功；重新加载页面或重连可恢复未读同步。
 PWA 角标仍使用内部总数，关闭本设备推送不改变未读集合。
 
@@ -127,6 +129,15 @@ Worker 向页面转发 push 的版本检查点，已由 SSE 覆盖则不再 GET�
 模块配置接受 `pushDelayMs`（0–60000，默认 3000）、`vapidSubject` 与 `extraPushHosts`，
 拒绝未知字段。默认 subject 为本仓库 HTTPS 地址；额外推送主机最多 16 个明确公共 DNS 名称，
 不能通过它启用私网、loopback 或任意 HTTP 端点。
+
+默认推送端点允许 Google `fcm.googleapis.com`、Mozilla `updates.push.services.mozilla.com`、
+Apple 的 `.push.apple.com` 子域，以及 Edge 使用的微软 WNS `.notify.windows.com` 子域。
+WNS 子域可随分区变化，按完整 DNS 标签后缀匹配，不放宽到任意 `windows.com`；
+微软的[通道 URI 校验说明](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/push-notifications/wns-overview#requesting-a-notification-channel)
+要求校验 `notify.windows.com` 域。仍拒绝明文 HTTP、显式端口、用户信息、片段和超长地址，
+发送时继续拒绝私网/回环/保留 DNS 结果，不跟随重定向。
+0.1.3 修复 0.1.2 遗漏微软域名导致 Edge 登记返回 400 的兼容问题；不关闭地址保护，
+不记录或要求用户公开完整订阅 URL/密钥，也不把允许登记等同于真实设备已收到 push。
 
 ## 系统通知标题、预览与点击
 

@@ -200,6 +200,37 @@ test('late worker lookup cannot detach a registration installed by explicit enab
   assert.equal(f.requests.at(-1)?.init?.method, 'DELETE');
 });
 
+test('an explicit enable retry reuses the browser subscription after server registration was rejected', async t => {
+  const f = fixture(t);
+  const request = f.context.request;
+  let rejectRegistration = true;
+  const bodies: string[] = [];
+  f.context.request = async (path, init) => {
+    if (path === '/subscriptions' && init?.method === 'POST') {
+      bodies.push(String(init.body));
+      if (rejectRegistration) return Response.json({
+        code: 'INVALID_PUSH_ENDPOINT', message: 'Push endpoint is not an allowed HTTPS service',
+      }, { status: 400 });
+    }
+    return request(path, init);
+  };
+  await f.bridge.enable();
+  assert.equal(f.bridge.getSnapshot().subscribed, true);
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.match(f.bridge.getSnapshot().error!, /400/);
+  assert.equal(f.counts().subscriptions, 1);
+  rejectRegistration = false;
+  await f.bridge.enable();
+  assert.equal(f.bridge.getSnapshot().registered, true);
+  assert.equal(f.bridge.getSnapshot().subscribed, true);
+  assert.equal(f.bridge.getSnapshot().error, null);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1], 'retry uses the existing subscription, not a new permission request or endpoint');
+  assert.equal(f.counts().subscriptions, 1);
+  assert.equal(f.counts().unsubscriptions, 0);
+  assert.equal(f.counts().permissionRequests, 0);
+});
+
 test('an obsolete subscription lookup failure cannot replace the successful mutation status', async t => {
   const f = fixture(t);
   f.setSubscription(f.createSubscription());

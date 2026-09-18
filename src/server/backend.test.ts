@@ -386,6 +386,25 @@ test('subscription routes return only opaque identity and snapshot; lifecycle re
   assert.deepEqual((await invoke(restarted, 'GET', '/subscriptions/:id', undefined, { id: body.id })).body, { registered: false });
 });
 
+test('Edge WNS endpoints pass the actual subscription route without disclosing channel URLs or keys', async t => {
+  const sent: NotificationPayload[] = [];
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  const subscriptionValue = { ...subscription(), endpoint: 'https://wns2-fixture.notify.windows.com/w/?token=synthetic-channel' };
+  const response = await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscriptionValue });
+  assert.equal(response.status ?? 200, 200);
+  const { id } = response.body as { id: string };
+  assert.match(id, /^[a-f0-9]{64}$/);
+  assert.deepEqual((await invoke(f.backend, 'GET', '/subscriptions/:id', undefined, { id })).body, { registered: true });
+  await f.emit(turn('edge-reply', { content: 'Synthetic notification for a WNS subscription.' }));
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.key.nativeId, 'edge-reply');
+  for (const value of [response.body, sent, f.publications, f.errors]) {
+    assert.ok(!JSON.stringify(value).includes('synthetic-channel'));
+    assert.ok(!JSON.stringify(value).includes(subscriptionValue.keys.auth));
+  }
+});
+
 test('abort clears pending work, aborts started send, and fences late callbacks and route requests', async t => {
   let signal: AbortSignal | undefined;
   let complete!: (value: SendOutcome) => void;

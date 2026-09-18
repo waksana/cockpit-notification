@@ -1,16 +1,26 @@
-# Cockpit Notification 0.1.2
+# Cockpit Notification 0.1.3
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
-GitHub Release assets for 0.1.2 have not yet been published; fixed-source installation is separate.
+GitHub Release assets for 0.1.3 have not yet been published; fixed-source installation is separate.
 Requires a paired host with generic module SSE payload support; released Cockpit 0.2.3
 does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
 The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.2 packages the accepted notification-content and menu/sidebar refinements under a new
-immutable version. It does not replace an already installed 0.1.1 digest. The earlier package
+0.1.3 packages the Edge push compatibility fix under a new immutable version.
+It does not replace an already installed 0.1.2 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
+
+## Changes from 0.1.2
+
+- Accept Microsoft WNS HTTPS endpoints under `.notify.windows.com`, including changing service
+  subdomains, without allowing arbitrary Windows domains or lookalike suffixes. Existing
+  port/credential/fragment/length guards and send-time public-address checks remain in force.
+- A browser-created subscription does not mean the backend registered it. Keep the enable action
+  available after a rejected registration so an explicit retry can reuse that subscription.
+- Existing server-side device subscriptions and VAPID keys are preserved. No automatic device
+  permission prompts, real push experiments or replay of previously unknown sends.
 
 ## Changes from 0.1.0
 
