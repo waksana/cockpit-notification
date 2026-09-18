@@ -688,13 +688,13 @@ test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are
   assert.equal(f.services.length, 0);
   const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
   const body = css.match(/\.cn-message-highlight\s*\{([^}]+)\}/)![1]!;
-  assert.match(body, /border-radius:\s*var\(--ck-radius\)/);
+  assert.match(body, /border-radius:\s*min\(var\(--ck-radius\), 3px\)/);
   assert.doesNotMatch(body, /overflow|clip-path|margin|padding/);
   const highlight = css.match(/\.cn-message-highlight\.cn-unread\s*\{([^}]+)\}/)![1]!;
   assert.match(highlight, /background-color:\s*color-mix\(in srgb, color-mix\(in srgb, var\(--ck-color-accent\) 35%, #f2c94c\) 18%, transparent\)/);
   assert.match(highlight, /transition-duration:\s*0s/);
   assert.doesNotMatch(highlight, /margin|padding|border|position|width|height/);
-  assert.match(css, /transition:\s*background-color 2400ms ease-out/);
+  assert.match(css, /transition:\s*background-color 1600ms ease-out/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.cn-message-highlight\s*\{\s*transition: none;/);
   const label = css.match(/\.cn-unread-label\s*\{([^}]+)\}/)![1]!;
   assert.match(label, /clip-path:\s*inset\(50%\)/);
