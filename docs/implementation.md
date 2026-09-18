@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.3 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
+本页记录 0.1.4 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
 需要包含通用 module/event 的配套宿主源码，不能只凭 0.2.3 版本号推断该开发能力已存在。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 
@@ -158,8 +158,15 @@ snapshot/session-added/session-patch 控制事件，维护有界的内存展示�
 可能在锁屏可见，不把“未读不落盘”描述成“设备上不会保留通知内容”。
 
 Worker 原样使用 payload 的标题和正文，不追加 `from Cockpit`；浏览器/OS 自带的应用来源行
-不属于可删除的正文。点击按原生 sessionId 打开对应会话，优先导航并聚焦已有应用窗口，
-否则打开新窗口；已处于目标会话时只聚焦。不发送 READ，不自动回答 ask，也不承诺定位到任意历史消息。
+不属于可删除的正文。点击按原生 sessionId 打开对应会话：已有窗口的 URL 正好是目标会话时只聚焦，
+多个匹配窗口优先选择已聚焦者；否则调用 `clients.openWindow()`，新开标签页还是复用 PWA 窗口由浏览器决定。
+不发送 READ，不自动回答 ask，也不承诺定位到任意历史消息。
+
+聊天页不在通知 worker 的窄 scope 内；`registration.active` 已激活不代表它控制聊天页。
+`clients.matchAll({ includeUncontrolled: true })` 可以找到同源的非受控页面，但不授予导航控制权。
+因此不调用 `WindowClient.navigate()` 重定向其他聊天窗口，不扩大 scope、不调用 `clients.claim()`，
+也不增加页面消息导航协议。浏览器拒绝打开/聚焦时明确反馈，不自动重复打开或伪装成功。
+0.1.4 修正了旧点击路径违反该控制边界的问题；重新授权或清除设备订阅不是这个问题的解决方式。
 
 ## 浏览器与手机的保证边界
 
