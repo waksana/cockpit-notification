@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.1 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
+本页记录 0.1.2 已确认的正式功能；GitHub Release 资产与具体实例的安装状态另行核对。
 需要包含通用 module/event 的配套宿主源码，不能只凭 0.2.3 版本号推断该开发能力已存在。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 

@@ -1,10 +1,16 @@
-# Cockpit Notification 0.1.1
+# Cockpit Notification 0.1.2
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
-GitHub Release assets for 0.1.1 have not yet been published; fixed-source installation is separate.
+GitHub Release assets for 0.1.2 have not yet been published; fixed-source installation is separate.
 Requires a paired host with generic module SSE payload support; released Cockpit 0.2.3
 does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
 The module manifest and backend API remain v1.
+
+## Installation identity
+
+0.1.2 packages the accepted notification-content and menu/sidebar refinements under a new
+immutable version. It does not replace an already installed 0.1.1 digest. The earlier package
+and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
 ## Changes from 0.1.0
 
