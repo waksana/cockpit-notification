@@ -3,5 +3,6 @@ dist/
 module-output/
 .cockpit-sdk/
 .host-sdk-source/
+.module-build.json
 *.log
 .DS_Store
