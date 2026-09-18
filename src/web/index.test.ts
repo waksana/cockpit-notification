@@ -415,22 +415,54 @@ test('module-global state persists through session changes and connected hidden 
   assert.equal(f.services.length, 2);
 });
 
-test('ask gutter marker follows the supplied question height rather than spanning the host choice group', async t => {
+test('ask has no redline but preserves the component and reports its exact identity after stable presentation', async t => {
   const snapshot: Snapshot = { ...base, sessions: [{ sessionId: 'session-a', count: 1,
     items: [{ kind: 'ask', nativeId: 'host-request-42', createdRevision: 1 }] }] };
   const f = fixture(t, snapshot);
   const frontend = await activate(f.context);
   await settle();
   const ask: MessageProps = { ...props, identity: { sessionId: 'session-a', kind: 'ask', id: 'host-request-42' } };
-  const marker = f.marker(frontend, ask)!;
+  assert.equal(f.marker(frontend, ask), null);
+  const ref = { current: null as HTMLDivElement | null };
+  const children = 'native question and choices';
+  const adornment = 'inherited question adornment';
+  const result = f.renderMessage(frontend, { ...ask, bodyRef: ref, children, adornment });
+  assert.equal(result.type, f.Base);
+  assert.equal(result.props.children, children);
+  assert.equal(result.props.adornment, adornment);
+  assert.equal(ref.current, f.element);
+  assert.equal(f.observed() > 0, true);
+  f.frame(0); f.frame(599);
+  assert.equal(f.calls.length, 1);
+  f.frame(600);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls[1]!.path, '/read');
+  assert.deepEqual(JSON.parse(String(f.calls[1]!.init?.body)), {
+    generation: 'generation-a', keys: [{ sessionId: 'session-a', kind: 'ask', nativeId: 'host-request-42' }],
+  });
+  assert.equal(f.marker(frontend, ask), null);
+  assert.equal(f.calls.every(call => ['/state', '/read'].includes(call.path)), true);
+  f.frame(1200);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 2, 'removing ask decoration does not duplicate read acknowledgements');
+  f.unmount();
+  assert.equal(ref.current, null);
+});
+
+test('reply redline continues to follow the supplied body height', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const marker = f.marker(frontend)!;
   assert.deepEqual(marker.props.style, { margin: 0, height: 200, bottom: 'auto' });
-  assert.equal(marker.props['aria-label'], '未读提问');
+  assert.equal(marker.props['aria-label'], '未读消息');
   assert.equal(marker.props.role, 'img');
   assert.equal(marker.props.tabIndex, undefined);
   assert.equal(marker.props.onClick, undefined);
   f.setRect({ top: 20, left: 10, right: 290, bottom: 100, height: 80, width: 280 });
   f.resize();
-  assert.deepEqual(f.marker(frontend, ask)?.props.style, { margin: 0, height: 80, bottom: 'auto' });
+  assert.deepEqual(f.marker(frontend)?.props.style, { margin: 0, height: 80, bottom: 'auto' });
 });
 
 test('initial complete history is never read, but a mounted incomplete-to-complete root reply can ACK early', async t => {

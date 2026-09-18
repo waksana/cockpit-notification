@@ -65,7 +65,7 @@ export const activate: ActivateFrontend = context => {
   updateActivity();
   void device.bootstrap();
 
-  function useMarker(props: MessageProps) {
+  function useUnreadMessage(props: MessageProps) {
     const state = useUnread();
     const message = props.identity;
     const key: MessageKey = { sessionId: message.sessionId, kind: message.kind === 'ask' ? 'ask' : 'reply', nativeId: message.id };
@@ -83,6 +83,7 @@ export const activate: ActivateFrontend = context => {
     const valid = root && props.complete && identity(message.sessionId) && identity(message.id);
     const known = valid && unread(state.snapshot, key);
     const eligible = valid && (known || transition.current.fresh || message.kind === 'ask');
+    const showMarker = known && message.kind !== 'ask';
     const [element, setElement] = React.useState<HTMLDivElement | null>(null);
     const bodyRef = React.useCallback((node: HTMLDivElement | null) => {
       setElement(node);
@@ -93,7 +94,7 @@ export const activate: ActivateFrontend = context => {
     }, [props.bodyRef]);
     const [height, setHeight] = React.useState<number | null>(null);
     React.useLayoutEffect(() => {
-      if (!known || !element) { setHeight(null); return; }
+      if (!showMarker || !element) { setHeight(null); return; }
       const measure = () => setHeight(element.getBoundingClientRect().height);
       measure();
       if (typeof ResizeObserver !== 'undefined') {
@@ -103,7 +104,7 @@ export const activate: ActivateFrontend = context => {
       }
       window.addEventListener('resize', measure);
       return () => window.removeEventListener('resize', measure);
-    }, [id, known, element]);
+    }, [id, showMarker, element]);
     React.useEffect(() => {
       if (!eligible || !element || !generation || !store.canPresent()) return;
       return observeRead(element,
@@ -111,7 +112,7 @@ export const activate: ActivateFrontend = context => {
           store.getSnapshot().snapshot?.generation === generation,
         () => store.present(key, generation), 600);
     }, [id, eligible, element, generation, state.status]);
-    const marker = known ? <span className="cn-redline" role="img" aria-label={message.kind === 'ask' ? '未读提问' : '未读消息'}
+    const marker = showMarker ? <span className="cn-redline" role="img" aria-label="未读消息"
       style={{ margin: 0, ...(height === null ? {} : { height, bottom: 'auto' }) }} /> : null;
     return { bodyRef, marker };
   }
@@ -207,7 +208,7 @@ export const activate: ActivateFrontend = context => {
     apiVersion: 2,
     components: [
       { id: 'unread-marker', boundary: 'message', wrap: Base => function UnreadMessage(props) {
-        const { bodyRef, marker } = useMarker(props);
+        const { bodyRef, marker } = useUnreadMessage(props);
         return <Base {...props} bodyRef={bodyRef} adornment={marker ? <>{props.adornment}{marker}</> : props.adornment} />;
       } },
       { id: 'unread-count', boundary: 'sessionStatus', wrap: Base => function UnreadSessionStatus(props) {

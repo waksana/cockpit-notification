@@ -1,7 +1,8 @@
 # 模块与宿主协作边界
 
-**当前分支：增量同步试用，未发布或部署。** 线上 0.1.0 的契约见其 tag；
-宿主接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)；
+**0.1.1 增量同步为已确认的正式功能。** 0.1.0 的契约见其 tag；
+通用组件接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)，
+通用 SSE payload 通路来自 [waksana/cockpit#30](https://github.com/waksana/cockpit/pull/30)；
 准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
 
 ## 1. 所有权
@@ -53,7 +54,7 @@
 本体给模块提供稳定的原生消息/宿主请求身份、当前 session 和必要呈现生命周期信息，
 让模块只关注自己尚未读的条目，不扫描完整历史，也不依赖正文私有选择器。
 
-红线作为真实 adornment 节点放在正文的现有呈现父节点中、与正文并列，
+回复红线作为真实 adornment 节点放在正文的现有呈现父节点中、与正文并列，
 使用外侧留白，不包裹或替换正文，也不改变 Markdown 首末子元素的排版。
 计数数字属于附加展示，不挤掉已有会话标题或原生待回答状态。
 Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占位容器。
@@ -66,6 +67,8 @@ Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占�
 600ms 阅读阈值与 150ms 批量窗口均在模块内部，不硬编码进本体。
 原生问答选择独立的请求草稿，不清空或借用缓存的普通 prompt 草稿。
 这不改变 ask 的通知身份和阅读规则：核销提醒不等于回答，结束/替换仍按原生控制事实撤销提醒。
+问卷不提供红线 adornment，但保留相同 message middleware 的 bodyRef 组合与阅读观察；
+增强 React 组件不等于必须增加可见装饰或 DOM 包装层。
 
 ## 4. 初始化快照、连续 delta 与恢复
 

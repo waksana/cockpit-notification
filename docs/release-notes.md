@@ -1,6 +1,7 @@
-# Cockpit Notification 0.1.1 (development)
+# Cockpit Notification 0.1.1
 
-Trial of revisioned unread deltas; not released, installed or deployed.
+Revisioned unread deltas are accepted product behavior, no longer a trial.
+GitHub Release assets for 0.1.1 have not yet been published; fixed-source installation is separate.
 Requires a paired host with generic module SSE payload support; released Cockpit 0.2.3
 does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
 The module manifest and backend API remain v1.
@@ -19,12 +20,15 @@ The module manifest and backend API remain v1.
 - Versioned push hints do not unconditionally repeat a GET already covered by SSE.
 - READ now broadcasts an actual ledger delta to connected clients; no extra SSE connection,
   persistent event replay, per-event ACK, background poller or clearing push is added.
+- Ask/questionnaire components no longer display unread redlines. Their message middleware still
+  observes stable foreground presentation and reports the exact request identity as read, without answering.
+  Reply redlines and unread counting/push behavior remain unchanged.
 
 ## Preserved behavior
 
 - Memory-only unread identities for new primary-agent final replies and current ask requests.
   Stable identities handle repeated events, multi-client reads and reads arriving before insertion.
-- One complete snapshot drives message redlines, session counts and the global total.
+- A complete snapshot followed by contiguous deltas drives reply redlines, session counts and the global total.
   Entering a chat does not clear unread; foreground presentation is required.
 - Real message, session-status, navigation and management-header middleware without empty slots
   or framework HTML wrappers. Notification policy and requests stay in registered module state.
@@ -47,5 +51,5 @@ The module manifest and backend API remain v1.
 - Real iPhone/Android installed-PWA push delivery has not been established by the synthetic fixtures.
   Platform installation, permission, network and operating-system limits still apply.
 
-Publication requires separate authorization and exact-source package verification.
-This trial does not enable subscriptions, backfill unread history, deploy or restart a service.
+Source changes do not automatically publish a Release, enable subscriptions, backfill unread history,
+deploy or restart a service. Release assets and each installation retain their exact source identities.
