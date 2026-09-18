@@ -1,18 +1,29 @@
-# Cockpit Notification 0.1.4
+# Cockpit Notification 0.1.5
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
-GitHub Release assets for 0.1.4 have not yet been published; fixed-source installation is separate.
-Requires a paired host with generic module SSE payload support; released Cockpit 0.2.3
+GitHub Release assets for 0.1.5 have not yet been published; fixed-source installation is separate.
+Requires a paired host with generic module SSE payloads and menu registration v1; released Cockpit 0.2.3
 does not provide this capability. The exact host source is pinned in `tooling/host-sdk.json`.
 The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.4 packages the narrow-worker notification navigation fix under a new immutable version.
-It does not replace an already installed 0.1.3 digest. The earlier package
+0.1.5 packages the declarative menu migration under a new immutable version.
+It does not replace an already installed 0.1.4 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
-## Changes from 0.1.3
+## Changes from 0.1.4
+
+- Register the device toggle through `menus` (`context.menuVersion === 1`), not a
+  `globalNavigation` component wrapper. The host retains native commands and owns
+  menu ordering, separators, keyboard operation, closing and focus restoration.
+- Derive presentation and subscriptions directly from DeviceBridge; keep its existing
+  permission, subscription, backend registration, concurrency and failure handling.
+  Browser-only subscriptions still allow retrying a failed backend registration.
+- Preserve message reading/bodyRef and session-status middleware, unread timing,
+  WNS endpoints and the narrow-worker click fix. No second notification entry is added.
+
+## Retained changes from 0.1.3
 
 - A notification click focuses an already open exact-session window, preferring a focused match.
   Otherwise it calls `clients.openWindow()`; browser/PWA policy determines window reuse.
@@ -65,7 +76,7 @@ and device configuration are retained; the unread protocol and restart semantics
   Stable identities handle repeated events, multi-client reads and reads arriving before insertion.
 - A complete snapshot followed by contiguous deltas drives reply redlines, session counts and the internal total for app badges.
   Entering a chat does not clear unread; foreground presentation is required.
-- Real message, session-status and navigation-menu middleware without empty slots
+- Real message/session-status middleware and declarative menu commands without empty slots
   or framework HTML wrappers. Notification policy and requests stay in registered module state.
 - Batch read acknowledgements and on-demand recovery; no background poller.
 - Web Push delayed by three seconds by default, with bounded sends and cancellation of unsent work.

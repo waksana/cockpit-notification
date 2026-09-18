@@ -1,6 +1,6 @@
 # 模块与宿主协作边界
 
-**0.1.4 增量同步与精简入口为已确认的正式功能。** 0.1.0 的契约见其 tag；
+**0.1.5 使用独立菜单项注册，保留增量同步与精简入口的正式功能。** 0.1.0 的契约见其 tag；
 通用组件接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)，
 通用 SSE payload 通路来自 [waksana/cockpit#30](https://github.com/waksana/cockpit/pull/30)；
 准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
@@ -13,8 +13,9 @@
 | 逐消息未读记录、会话 U、全站 U | Notification 模块 |
 | 推送订阅、投递记录、通知与消息关联 | Notification 模块 |
 | Chat 正文渲染、分页与唯一滚动控制 | 本体 |
-| 基础消息、会话状态、全局操作组件 | 本体公开组件契约 |
-| 注册 state 服务与组件 middleware | 本体统一 Web 运行时，业务实现属于模块 |
+| 基础消息、会话状态组件 | 本体公开组件契约 |
+| 菜单项注册、渲染、键盘、关闭与焦点 | 本体通用菜单契约；开关状态与动作由模块声明 |
+| 注册 state 服务、菜单与组件 middleware | 本体统一 Web 运行时，业务实现属于模块 |
 | 标记何时出现、读后确认与通知策略 | 模块 |
 | Service Worker 的稳定 URL、资源校验和限定作用域 | 本体公开机制 |
 | worker 注册、更新、设备订阅和通知权限交互 | 模块；生命周期受浏览器规则约束 |
@@ -38,8 +39,11 @@
 - Web API v2：context 与返回声明都要求 `apiVersion: 2`，旧 Web 插口不保留兼容层。
 - `context.state.register` 注册已有 UnreadStore 与 DeviceBridge 等共享状态服务；
   不按消息重复创建 store 或发 HTTP，不把未读写入本体原生数据。
-- `components` 注册 message/sessionStatus 及实际 globalNavigation middleware，
+- `components` 仅注册 message/sessionStatus middleware，
   使用基础 props 的身份、完成事实、正文 bodyRef、children/adornment 组合原组件。
+- `menus` 注册一个 `menu: 'global'` 的 `notification-toggle`，明确要求 `context.menuVersion === 1`。
+  `getState` 读取已有 DeviceBridge，`subscribe` 直接使用其订阅；`onSelect` 重新读取状态并调用 enable/disable。
+  不复制原生 store、不自建菜单运行时、不包装完整菜单或注册任意页面。
 - `context.state.host` 提供当前会话、前后台和连接状态；`onEvent` 接收本模块 payload。
 - 后端 `controlEvents` 观察已有会话控制投影；`publish(payload)` 复用已有 SSE，
   不增加 graceful 等待。
@@ -58,10 +62,13 @@
 使用外侧留白，不包裹或替换正文，也不改变 Markdown 首末子元素的排版。
 计数数字属于附加展示，不挤掉已有会话标题或原生待回答状态。
 Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占位容器。
-导航增强在原有菜单的完整 `items` 后追加本设备通知开关，保留原生菜单关闭、键盘和焦点行为；
+菜单注册声明本设备通知开关，由宿主保留原生条目并统一处理排序、分隔、动态禁用、关闭、键盘和焦点；
 不增加主界面铃铛、总数、独立设置面板或管理页通知入口。
 不在原组件旁边另插一个默认内容为空的 globalActions 位置。
 正文、卡片与输入框的视觉几何保持不变，原有 refs/children/actions 必须组合保留。
+菜单项与服务、middleware 共用模块作用域和 ID 校验；停用时由宿主撤销订阅和入口。
+已接纳的设备操作不因菜单正常关闭而取消，模块停止则由既有 signal/dispose 使晚结果失效。
+宿主同步调用动作以保留浏览器授权所需的用户手势；显示禁用不替代 DeviceBridge 的并发和真实环境条件。
 
 模块依据 message 的 bodyRef 观察真实裁剪、遮挡和稳定可见时间；宿主不决定“已读”。
 页面进入后台、组件卸载、路由变化会取消对应观察，不继续产生旧的可见确认。

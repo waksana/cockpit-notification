@@ -1,7 +1,8 @@
 # 构建、配套宿主与安装
 
-**0.1.4 增量同步与精简入口为正式功能，可以从固定源码构建安装。** 需要配套源码提供的通用模块事件，
-不能将已发行 Cockpit 0.2.3 视为自动支持。源码配套宿主要求 Web API v2 的 state 服务与组件 middleware；
+**0.1.5 将本设备开关迁入独立菜单项注册，可以从固定源码构建安装。** 增量同步与精简入口保持正式功能。
+需要配套源码提供的通用模块事件及菜单注册，不能将已发行 Cockpit 0.2.3 视为自动支持。
+源码配套宿主要求 Web API v2 的 state 服务、组件 middleware 及 `context.menuVersion === 1`；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
 准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
 不能把旧的 0.2.x 包视为自动兼容。
@@ -9,7 +10,7 @@
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
 已发行 0.1.0 的安装说明使用其 tag 文档；delta 和新回执格式不是该版本的现有能力。
-GitHub 尚未发布 0.1.4 Release 资产；固定源码产包不等于已发布 Release，不使用旧包或源码 ZIP 冒充新安装包。
+GitHub 尚未发布 0.1.5 Release 资产；固定源码产包不等于已发布 Release，不使用旧包或源码 ZIP 冒充新安装包。
 已安装模块版本的摘要不可更换；内容改变必须使用新版本，不能覆盖原有版本的包。
 
 ## 从源码构建
@@ -37,7 +38,7 @@ worker 不需要外部 CDN、动态 import 或模块私有脚本服务。
 
 ```sh
 pnpm package
-pnpm verify:package module-output/cockpit-notification-0.1.4.tgz
+pnpm verify:package module-output/cockpit-notification-0.1.5.tgz
 ```
 
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
@@ -57,7 +58,7 @@ CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建�
 ```sh
 node --import ./apps/server/node_modules/tsx/dist/loader.mjs \
   apps/server/src/module-cli.ts install \
-  /absolute/path/cockpit-notification-0.1.4.tgz --trust-local-code --enable
+  /absolute/path/cockpit-notification-0.1.5.tgz --trust-local-code --enable
 ```
 
 本体管理模块包与数据根；模块不读取或迁移 Copilot native home。
@@ -70,7 +71,8 @@ VAPID 与设备订阅属于私有模块配置，保存在本模块 `dataRoot`，
 只有 VAPID 公钥和必要参数允许返回给客户端。
 
 用户通过汉堡菜单中的“开启通知 / 关闭通知”操作管理本设备推送；
-菜单动作列表需要本模块 pin 对应的配套宿主，模块不在初次加载时自动弹出浏览器授权。
+菜单注册需要本模块 pin 对应的配套宿主；旧 `globalNavigation` 包装不再保留，
+模块不在初次加载时自动弹出浏览器授权。
 使用浏览器支持的 HTTPS/PWA 环境；拒绝权限时普通未读功能仍可使用。
 取消本设备订阅在模块界面执行；它不清其他设备，也不删除原生消息。
 

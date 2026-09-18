@@ -133,7 +133,7 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   };
   const controller = new AbortController();
   const context = {
-    apiVersion: 2, uiVersion: 1, moduleId: 'cockpit-notification', react: React,
+    apiVersion: 2, uiVersion: 1, menuVersion: 1, moduleId: 'cockpit-notification', react: React,
     apiBase: `https://host.test/deployment/_modules/cockpit-notification/${'a'.repeat(64)}/api`,
     config: { readDelayMs: 600, pushDelayMs: 3000, maxBatch: 128 },
     signal: controller.signal, report: (error: unknown) => errors.push(error),
@@ -255,13 +255,14 @@ test('frontend registers concrete services and v2 middleware; unsupported push k
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
-  assert.deepEqual(Object.keys(frontend).sort(), ['apiVersion', 'components', 'dispose']);
+  assert.deepEqual(Object.keys(frontend).sort(), ['apiVersion', 'components', 'dispose', 'menus']);
   assert.equal(frontend.apiVersion, 2);
   assert.deepEqual(frontend.components?.map(component => component.boundary),
-    ['message', 'sessionStatus', 'globalNavigation']);
+    ['message', 'sessionStatus']);
+  assert.deepEqual(frontend.menus?.map(entry => entry.menu), ['global']);
   assert.deepEqual(f.services.map(service => [service.id, service.instance.constructor.name]),
     [['device-bridge', 'DeviceBridge'], ['unread-store', 'UnreadStore']]);
-  const ids = [...f.services, ...frontend.components!].map(registration => registration.id);
+  const ids = [...f.services, ...frontend.components!, ...frontend.menus!].map(registration => registration.id);
   assert.equal(new Set(ids).size, ids.length);
   const line = f.marker(frontend);
   assert.equal(line?.type, 'span');
@@ -577,20 +578,12 @@ test('sidebar badge remains noninteractive while navigation contains only the no
   assert.equal(badge.props.tabIndex, undefined);
   assert.deepEqual(badge.props.children, [1]);
   f.unmount();
-  const globalBase = (() => null);
-  const actions = frontend.components!.find(component => component.boundary === 'globalNavigation')!.wrap(globalBase);
-  const hostAction = 'native and inherited global actions';
-  const nativeItem = { id: 'native.action', label: 'Native action', onClick() {} };
-  const outer = f.render(actions, { children: hostAction, items: [nativeItem] })!;
-  assert.equal(outer.type, globalBase, 'global middleware introduces no placeholder container');
-  assert.equal(outer.props.children, hostAction);
-  const items = outer.props.items as { label: string; disabled?: boolean }[];
-  assert.equal(items[0], nativeItem);
-  assert.equal(items.length, 2);
-  assert.equal(items[1]!.label, '开启通知（当前环境不支持）');
-  assert.equal(items[1]!.disabled, true);
+  assert.equal(frontend.menus!.length, 1);
+  const state = frontend.menus![0]!.getState({ menu: 'global' });
+  assert.equal(state.label, '开启通知（当前环境不支持）');
+  assert.equal(state.disabled, true);
   assert.doesNotMatch(compiled, /cn-global|cn-dialog|cn-settings|cn-state-dot|createPortal|通知设置，|未读：/);
-  assert.throws(() => f.render(actions, { children: hostAction }), /菜单动作列表/);
+  assert.doesNotMatch(compiled, /globalNavigation|props\.items/);
 });
 
 test('notification menu only toggles this device and disables actions during work or unsupported enablement', async t => {
@@ -604,32 +597,39 @@ test('notification menu only toggles this device and disables actions during wor
   bridge.getSnapshot = () => status;
   bridge.enable = async () => { toggled.push('enable'); };
   bridge.disable = async () => { toggled.push('disable'); };
-  const base = () => null;
-  const navigation = frontend.components!.find(component => component.boundary === 'globalNavigation')!.wrap(base);
-  const toggle = () => (f.render(navigation, { items: [] })!.props.items as {
-    label: string; disabled: boolean; onClick(): void;
-  }[])[0]!;
+  const menu = frontend.menus![0]!;
+  const target = { menu: 'global' } as const;
+  const toggle = () => menu.getState(target);
+  const controller = new AbortController();
+  const click = () => menu.onSelect(target, { signal: controller.signal });
+  assert.equal(menu.subscribe, bridge.subscribe, 'the registry subscribes to the existing device service');
   assert.equal(toggle().label, '开启通知');
   assert.equal(toggle().disabled, false);
   assert.deepEqual(toggled, []);
-  toggle().onClick();
+  await click();
   assert.deepEqual(toggled, ['enable']);
   status = { ...status, subscribed: true, registered: false, error: 'Server registration rejected' };
   assert.equal(toggle().label, '开启通知', 'a browser-only subscription does not claim server-side enablement');
   assert.equal(toggle().disabled, false);
-  toggle().onClick();
+  await click();
   assert.deepEqual(toggled, ['enable', 'enable']);
   status = { ...status, registered: true, subscribed: true };
   assert.equal(toggle().label, '关闭通知');
-  toggle().onClick();
+  await click();
   assert.deepEqual(toggled, ['enable', 'enable', 'disable']);
   status = { ...status, busy: true };
   assert.equal(toggle().label, '通知处理中…');
   assert.equal(toggle().disabled, true);
+  assert.throws(click, /当前无法更改/);
   status = { ...status, busy: false, registered: false, subscribed: true, supported: false };
   assert.equal(toggle().disabled, false, 'a remaining browser subscription can still be disabled');
   status = { ...status, subscribed: false };
   assert.equal(toggle().disabled, true);
+  assert.throws(click, /当前无法更改/);
+  status = { ...status, supported: true };
+  controller.abort();
+  assert.throws(click, /abort/i);
+  assert.deepEqual(toggled, ['enable', 'enable', 'disable']);
   assert.equal(f.calls.length, 1, 'menu rendering and toggling do not refetch unread state');
   assert.equal(frontend.components!.some(component =>
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
@@ -637,7 +637,7 @@ test('notification menu only toggles this device and disables actions during wor
 
 test('breaking frontend ABI rejection and gutter geometry are explicit without removed settings styles', async t => {
   const f = fixture(t);
-  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
+  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { menuVersion: undefined }, { menuVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
     await assert.rejects(async () => activate({ ...f.context, ...extra } as ModuleFrontendContext), /frontend v2/);
   }
   assert.equal(f.calls.length, 0);
