@@ -90,19 +90,6 @@ export const activate: ActivateFrontend = context => {
         if (typeof cleanup === 'function') return () => { setElement(null); cleanup(); };
       } else if (props.bodyRef) props.bodyRef.current = node;
     }, [props.bodyRef]);
-    const [height, setHeight] = React.useState<number | null>(null);
-    React.useLayoutEffect(() => {
-      if (!showMarker || !element) { setHeight(null); return; }
-      const measure = () => setHeight(element.getBoundingClientRect().height);
-      measure();
-      if (typeof ResizeObserver !== 'undefined') {
-        const observer = new ResizeObserver(measure);
-        observer.observe(element);
-        return () => observer.disconnect();
-      }
-      window.addEventListener('resize', measure);
-      return () => window.removeEventListener('resize', measure);
-    }, [id, showMarker, element]);
     React.useEffect(() => {
       if (!eligible || !element || !generation || !store.canPresent()) return;
       return observeRead(element,
@@ -110,9 +97,11 @@ export const activate: ActivateFrontend = context => {
           store.getSnapshot().snapshot?.generation === generation,
         () => store.present(key, generation), 600);
     }, [id, eligible, element, generation, state.status]);
-    const marker = showMarker ? <span className="cn-redline" role="img" aria-label="未读消息"
-      style={{ margin: 0, ...(height === null ? {} : { height, bottom: 'auto' }) }} /> : null;
-    return { bodyRef, marker };
+    const className = root && message.kind === 'message'
+      ? [props.className, 'cn-message-highlight', known ? 'cn-unread' : ''].filter(Boolean).join(' ')
+      : props.className;
+    const marker = showMarker ? <span className="cn-unread-label" role="img" aria-label="未读消息" /> : null;
+    return { bodyRef, marker, className };
   }
 
   function SessionBadge({ sessionId }: { sessionId: string }) {
@@ -161,8 +150,9 @@ export const activate: ActivateFrontend = context => {
     }],
     components: [
       { id: 'unread-marker', boundary: 'message', wrap: Base => function UnreadMessage(props) {
-        const { bodyRef, marker } = useUnreadMessage(props);
-        return <Base {...props} bodyRef={bodyRef} adornment={marker ? <>{props.adornment}{marker}</> : props.adornment} />;
+        const { bodyRef, marker, className } = useUnreadMessage(props);
+        return <Base {...props} className={className} bodyRef={bodyRef}
+          adornment={marker ? <>{props.adornment}{marker}</> : props.adornment} />;
       } },
       { id: 'unread-count', boundary: 'sessionStatus', wrap: Base => function UnreadSessionStatus(props) {
         return <Base {...props}>{props.children}<SessionBadge sessionId={props.sessionId} /></Base>;

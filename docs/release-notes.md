@@ -1,7 +1,8 @@
-# Cockpit Notification 0.1.6
+# Cockpit Notification 0.1.7
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
+This document describes the 0.1.7 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -10,9 +11,30 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.6 packages the unread badge geometry refinement under a new immutable version.
-It does not replace an already installed 0.1.5 digest. The earlier package
+0.1.7 packages the theme-aware unread background under a new immutable version.
+It does not replace an already installed 0.1.6 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
+
+## Changes from 0.1.6
+
+- Replace the out-of-bounds reply redline with a subtle background painted inside the actual
+  message body, only for completed primary-agent replies known to be unread.
+  Mix the theme token `--ck-color-accent` at 8% with transparency, adapting to light and dark themes.
+- Use the public `MessageProps.className` styling hook; retain incoming classes and `style`,
+  compose `bodyRef`, and preserve children/adornment and accessibility props.
+  Replace the decorative line with a visually hidden unread label, retaining
+  `role="img"` and `aria-label="未读消息"`;
+  remove decorative-line measurement and its ResizeObserver.
+  No extra DOM wrappers, decoration nodes, padding, margins or layout changes are introduced.
+- Fade the background out over 200ms when unread is removed; disable transitions under
+  `prefers-reduced-motion`.
+- Paint inside the body to avoid clipping of out-of-bounds decoration by `content-visibility: auto`.
+  No host changes or performance-optimization opt-out are required.
+- Ask requests remain unhighlighted, counted and observed for reading. Session count badges,
+  menu registration, ledger/delta protocol, reading rules, push and subscriptions are unchanged.
+
+The following sections record earlier releases' changes; their redline descriptions are historical
+and are superseded by the 0.1.7 background above.
 
 ## Changes from 0.1.5
 
@@ -83,7 +105,7 @@ and device configuration are retained; the unread protocol and restart semantics
 
 - Memory-only unread identities for new primary-agent final replies and current ask requests.
   Stable identities handle repeated events, multi-client reads and reads arriving before insertion.
-- A complete snapshot followed by contiguous deltas drives reply redlines, session counts and the internal total for app badges.
+- A complete snapshot followed by contiguous deltas drives reply unread highlights, session counts and the internal total for app badges.
   Entering a chat does not clear unread; foreground presentation is required.
 - Real message/session-status middleware and declarative menu commands without empty slots
   or framework HTML wrappers. Notification policy and requests stay in registered module state.

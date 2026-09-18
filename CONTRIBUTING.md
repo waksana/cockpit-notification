@@ -1,6 +1,6 @@
 # 参与开发
 
-当前源码版本为 0.1.6，配套 Cockpit 0.2.4；发布状态以对应 GitHub Release 为准。先阅读[产品要求](docs/requirements.md)、
+当前源码版本为 0.1.7，配套 Cockpit 0.2.4；发布状态以对应 GitHub Release 为准。先阅读[产品要求](docs/requirements.md)、
 [状态机](docs/state-machines.md)和[实现边界](docs/implementation.md)。
 未完成的平台覆盖不能因为类型或合成测试通过就宣传为已验证。
 
@@ -12,6 +12,9 @@
   [模块 UI 指南](https://github.com/waksana/cockpit/blob/main/docs/module-ui-guide.md)及
   [开发原则](https://github.com/waksana/cockpit/blob/main/docs/DEVELOPMENT.md#interaction-semantics-and-structural-correctness)。
   可见外观、控件语义、焦点、状态和事件归属必须自洽，不仅是鼠标能点击。
+- 未读底色通过公共 `MessageProps.className` 增强，保留传入的 `style`、bodyRef、children/adornment
+  和可访问性属性；不增加包装、间距或布局变化，不修改宿主或关闭 `content-visibility: auto` 性能优化。
+  主题色、过渡与减少动态效果规则见产品要求；ask 只保留计数和阅读观察，不高亮。
 - 文档区分现状、已确认需求和待定方案；不通过改文档掩盖实现缺口。
 - 状态变更需同步检查不变量和乱序时序表，特别是核销先到、旧响应、推送迟到、
   重启清零与旧快照不能清理新通知；不要在多个页面复制各自一份转移规则。
