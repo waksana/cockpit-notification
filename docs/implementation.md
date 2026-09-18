@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.7 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
+本页记录 0.1.8 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
 配套 Cockpit 0.2.4 的通用 module/event 和 menus v1；历史 0.2.3 Release 不包含这些能力。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 
@@ -87,12 +87,15 @@ PWA 角标仍使用内部总数，关闭本设备推送不改变未读集合。
 ## 回复未读底色
 
 仅已完成且已知未读的主 Agent 回复使用浅色底色；通过公共 `MessageProps.className`
-添加样式类，在实际消息正文内绘制 `--ck-color-accent` 与透明色混合的 8% 主题强调色。
+添加样式类，在实际消息正文内绘制暖黄色底色：35% 的 `--ck-color-accent` 与 65% 的
+暖金色 `#f2c94c` 混合，再以 18% 不透明度叠加，不覆盖明暗主题原有背景与文字色。
 保留原有 `className`、`style`、组合 bodyRef，以及 children/adornment 和可访问性属性。
 向 Base 组合 `cn-message-highlight` / `cn-unread` 类，将原装饰线改为视觉隐藏的 `cn-unread-label`，
 保留 `role="img"`、`aria-label="未读消息"` 语义；移除装饰线高度测量及其 ResizeObserver。
 不增加可见装饰节点、DOM 包装、padding 或 margin，不改变正文宽高、换行、对齐与滚动几何。
-未读移除后底色以 200ms 淡出，`prefers-reduced-motion` 下禁用过渡。
+底色圆角跟随宿主 `--ck-radius`，不裁剪正文或增加间距；圆角在淡出期间保持不变。
+新增未读立即显示底色，权威未读状态移除后以 2400ms ease-out 缓慢淡出；
+未读期间不自动消失，`prefers-reduced-motion` 下禁用过渡。
 
 `content-visibility: auto` 的绘制包含会裁剪越界装饰；正文内底色避免这一问题。
 本次只改变模块展示，不修改宿主、不关闭或绕过宿主性能优化；会话徽标、未读协议、
