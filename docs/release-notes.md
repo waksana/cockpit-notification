@@ -1,4 +1,4 @@
-# Cockpit Notification 0.1.5
+# Cockpit Notification 0.1.6
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
@@ -10,9 +10,16 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.5 packages the declarative menu migration under a new immutable version.
-It does not replace an already installed 0.1.4 digest. The earlier package
+0.1.6 packages the unread badge geometry refinement under a new immutable version.
+It does not replace an already installed 0.1.5 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
+
+## Changes from 0.1.5
+
+- Center session unread counts in an 18px-high, border-box inline-flex badge. A
+  single digit is circular; larger counts expand horizontally into a pill without
+  flex shrinking. Preserve the host's trailing badge placement and noninteractive semantics.
+- No changes to menu registration, reading detection, ledger/deltas, push delivery or subscriptions.
 
 ## Changes from 0.1.4
 

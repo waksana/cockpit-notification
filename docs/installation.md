@@ -1,6 +1,6 @@
 # 构建、配套宿主与安装
 
-**0.1.5 配套 Cockpit 0.2.4，将本设备开关迁入独立菜单项注册。** 增量同步与精简入口保持正式功能。
+**当前源码 0.1.6 配套 Cockpit 0.2.4，沿用独立菜单项注册并细化会话徽标。** 增量同步与精简入口保持正式功能。
 需要宿主提供的通用模块事件及菜单注册，历史 Cockpit 0.2.3 Release 不具备这些能力。
 源码配套宿主要求 Web API v2 的 state 服务、组件 middleware 及 `context.menuVersion === 1`；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
@@ -42,7 +42,7 @@ worker 不需要外部 CDN、动态 import 或模块私有脚本服务。
 
 ```sh
 pnpm package
-pnpm verify:package module-output/cockpit-notification-0.1.5.tgz
+pnpm verify:package module-output/cockpit-notification-0.1.6.tgz
 ```
 
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
@@ -62,7 +62,7 @@ CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建�
 ```sh
 node --import ./apps/server/node_modules/tsx/dist/loader.mjs \
   apps/server/src/module-cli.ts install \
-  /absolute/path/cockpit-notification-0.1.5.tgz --trust-local-code --enable
+  /absolute/path/cockpit-notification-0.1.6.tgz --trust-local-code --enable
 ```
 
 本体管理模块包与数据根；模块不读取或迁移 Copilot native home。

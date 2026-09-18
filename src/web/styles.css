@@ -10,16 +10,20 @@
   pointer-events: none;
 }
 .cn-session-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
+  box-sizing: border-box;
   border-radius: 999px;
-  padding: 0 5px;
-  min-width: 16px;
+  padding: 0 4px;
+  min-width: 18px;
+  height: 18px;
   background: var(--ck-color-danger);
   color: var(--ck-color-on-accent);
   text-align: center;
   font-size: 11px;
-  line-height: 17px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 .cn-stale { opacity: .7; }

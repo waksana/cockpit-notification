@@ -635,6 +635,21 @@ test('notification menu only toggles this device and disables actions during wor
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
 });
 
+test('session badge uses equal minimum dimensions and centered content without flex shrinking', async () => {
+  const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+  const badge = css.match(/\.cn-session-badge\s*\{([^}]+)\}/)![1]!;
+  assert.match(badge, /display:\s*inline-flex;/);
+  assert.match(badge, /align-items:\s*center;/);
+  assert.match(badge, /justify-content:\s*center;/);
+  assert.match(badge, /flex:\s*none;/);
+  assert.match(badge, /box-sizing:\s*border-box;/);
+  assert.match(badge, /min-width:\s*18px;/);
+  assert.match(badge, /height:\s*18px;/);
+  assert.match(badge, /padding:\s*0 4px;/);
+  assert.match(badge, /border-radius:\s*999px;/);
+  assert.match(badge, /line-height:\s*1;/);
+});
+
 test('breaking frontend ABI rejection and gutter geometry are explicit without removed settings styles', async t => {
   const f = fixture(t);
   for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { menuVersion: undefined }, { menuVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
