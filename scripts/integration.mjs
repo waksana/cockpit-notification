@@ -141,12 +141,33 @@ try {
   await emit('assistant.message_delta', { messageId, deltaContent: 'Synthetic final' }, true);
   await emit('assistant.message', { messageId, turnId: '3', phase: 'final_answer',
     content: 'Synthetic final', toolRequests: [], apiCallId: 'A'.repeat(488) });
+  assert.equal((await app.inject(`${base}/state`)).json().total, 1, 'final is admitted before turn_end/idle');
   await emit('assistant.turn_end', { turnId: '3' });
   await emit('assistant.idle', {}, true);
   assert.equal((await app.inject(`${base}/state`)).json().total, 1);
   assert.deepEqual(changed.at(-1).payload.added, [{ sessionId, kind: 'reply', nativeId: messageId, createdRevision: 3 }]);
   assert.equal(projection.messages.find(message => message.id === messageId).content, 'Synthetic final');
   assert.ok(projection.completed.has(messageId), 'the unread key still names the completed native projection');
+  await emit('assistant.turn_start', { turnId: 'ordinary' });
+  for (let index = 0; index < 1000; index++) {
+    const messageId = `ordinary-${index}`;
+    await emit('assistant.message_start', { messageId }, true);
+    await emit('assistant.message', { messageId, content: `Ordinary ${index}`, turnId: 'ordinary' });
+  }
+  await emit('assistant.turn_end', { turnId: 'ordinary' });
+  await emit('assistant.idle', {}, true);
+  assert.equal((await app.inject(`${base}/state`)).json().total, 1);
+  await emit('assistant.turn_start', { turnId: 'explicit' });
+  for (const messageId of ['first-final', 'second-final']) {
+    await emit('assistant.message_start', { messageId }, true);
+    await emit('assistant.message', { messageId, content: messageId, turnId: 'explicit', phase: 'final_answer' });
+  }
+  assert.equal((await app.inject(`${base}/state`)).json().total, 3);
+  await emit('assistant.turn_end', { turnId: 'explicit' });
+  await emit('assistant.idle', {}, true);
+  assert.equal((await app.inject(`${base}/state`)).json().total, 3);
+  assert.deepEqual(changed.slice(-2).flatMap(event => event.payload.added.map(item => item.nativeId)),
+    ['first-final', 'second-final']);
   now += 24 * 60 * 60_000;
   await emit('assistant.turn_end', { turnId: '3' });
   await emit('assistant.idle', {}, true);
@@ -166,28 +187,30 @@ try {
   }
   assert.deepEqual(backendReports, []);
 
-  // A genuine capacity error is still reported. The pinned host retains it even
+  // A genuine invalid identity is still reported. The pinned host retains it even
   // after subsequent successful turns; reopening is not a new backend failure.
   await emit('assistant.turn_start', { turnId: 'overflow' });
   for (let index = 0; index < 129; index++) await emit('assistant.message_start', { messageId: `overflow-${index}` }, true);
+  assert.equal(backendReports.length, 0, 'stream events have no notification evidence quota');
+  await emit('assistant.message', { messageId: 'bad id', content: 'Invalid final identity', phase: 'final_answer' });
   assert.equal(backendReports.length, 1);
-  assert.equal(backendReports[0].error.code, 'CLASSIFIER_TURN_CAPACITY');
+  assert.equal(backendReports[0].error.code, 'INVALID_REPLY_IDENTITY');
   await emit('assistant.turn_end', { turnId: 'overflow' });
   await emit('assistant.idle', {}, true);
   assert.deepEqual((await app.inject(`${base}/state`)).json(), beforeReopen);
   await emit('assistant.turn_start', { turnId: 'recovered' });
   await emit('assistant.message_start', { messageId: 'recovered' }, true);
-  await emit('assistant.message', { messageId: 'recovered', turnId: 'recovered', content: 'Recovered reply' });
+  await emit('assistant.message', { messageId: 'recovered', phase: 'final_answer', content: 'Recovered reply' });
   await emit('assistant.turn_end', { turnId: 'recovered' });
   await emit('assistant.idle', {}, true);
   const recovered = (await app.inject(`${base}/state`)).json();
-  assert.equal(recovered.total, 2);
+  assert.equal(recovered.total, beforeReopen.total + 1);
   for (let index = 0; index < 2; index++) {
     await reopen();
     assert.equal(frontendReports.length, index + 1);
-    assert.match(String(frontendReports.at(-1)), /cockpit-notification: Live reply turn exceeded/);
+    assert.match(String(frontendReports.at(-1)), /cockpit-notification: Final reply has an invalid/);
     assert.deepEqual((await app.inject(`${base}/state`)).json(), recovered);
-    assert.equal((await app.inject('/_modules')).json().errors[0].code, 'CLASSIFIER_TURN_CAPACITY');
+    assert.equal((await app.inject('/_modules')).json().errors[0].code, 'INVALID_REPLY_IDENTITY');
     assert.equal(backendReports.length, 1);
   }
   frontend.stop();
@@ -197,7 +220,8 @@ try {
   console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
     controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
     longTurnWithoutExpiry: true, nativeProjectionIdentity: true, pageReopenWithoutNewFailure: true,
-    realCapacityReportRetainedByPinnedHost: true,
+    immediateExplicitFinalsOnly: true, separateExplicitFinals: true,
+    realErrorRetainedByPinnedHost: true,
     narrowWorker: true, packagedFrontendMenuRegistry: true, noNativeRuntimeOrPushService: true }));
 } finally {
   frontend?.stop();

@@ -68,23 +68,16 @@ test('state/read HTTP contracts publish contiguous atomic deltas and return comp
   assert.equal(f.errors.length, 0);
 });
 
-test('restarted backend ignores durable historical views and only counts a fresh matching stream', async t => {
+test('backend subscribes only to live assistant messages; restart starts empty without querying history', async t => {
   const f = fixture(t);
-  assert.ok(f.backend.events!.types.includes('assistant.message_start'));
-  assert.ok(f.backend.events!.types.includes('assistant.message_delta'));
+  assert.deepEqual(f.backend.events!.types, ['assistant.message']);
   await f.emit(turn('before-restart', { phase: 'final_answer' }));
   f.backend.dispose?.();
   const restarted = activate({ ...f.context, signal: new AbortController().signal, publish() {} },
     { clock: f.clock, sender: async () => 'ACCEPTED' });
   t.after(() => restarted.dispose?.());
-  for (const phase of [undefined, 'final_answer']) {
-    const history = turn('history', { phase }).filter(item => item.event.ephemeral !== true);
-    for (const event of [...history, observation('assistant.idle', {}, { ephemeral: true })]) {
-      await restarted.events!.handle(event);
-    }
-  }
   assert.equal(parseSnapshot((await invoke(restarted, 'GET', '/state')).body).total, 0);
-  for (const event of turn('fresh')) await restarted.events!.handle(event);
+  await restarted.events!.handle(message('fresh').at(-1)!);
   const state = parseSnapshot((await invoke(restarted, 'GET', '/state')).body);
   assert.equal(state.total, 1);
   assert.equal(state.sessions[0]!.items[0]!.nativeId, 'fresh');
@@ -92,7 +85,7 @@ test('restarted backend ignores durable historical views and only counts a fresh
 
 test('long replies cross the former 15-minute boundary without losing unread, identity or push preview', async t => {
   for (const elapsed of [15 * 60_000 - 1, 15 * 60_000, 15 * 60_000 + 1, 24 * 60 * 60_000]) {
-    for (const split of [1, 2, 4, 5]) {
+    for (const split of [1, 2, 3]) {
       const sent: NotificationPayload[] = [];
       const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
       await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
@@ -103,7 +96,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
       assert.equal(f.clock.timers.size, 0, 'classification has no expiration timer');
       await f.clock.advance(elapsed);
       assert.deepEqual(await f.state(), before);
-      await f.emit(events.slice(split));
+      await f.emit(events.slice(split, 4));
       assert.equal((await f.state()).total, 1);
       assert.equal(sent.length, 0, 'unread does not wait for the push window');
       await f.clock.advance(3000);
@@ -113,7 +106,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
       assert.equal(sent[0]!.total, 1);
       const completed = await f.state();
       await f.clock.advance(elapsed);
-      await f.emit([...events, ...message('late'), ...turn().slice(-2)]);
+      await f.emit([...events, ...message('late', { phase: undefined }), ...turn().slice(-2)]);
       assert.deepEqual(await f.state(), completed);
       await invoke(f.backend, 'POST', '/read', { generation: completed.generation, keys: [key('long'), key('early')] });
       await f.emit([...events, ...turn('early')]);
@@ -125,7 +118,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
   }
 });
 
-test('long ask waits and aborted turns release reply evidence without clearing known unread or READ identities', async t => {
+test('long ask waits and later abort/error never retract a published final or clear READ identities', async t => {
   for (const ending of ['abort', 'session.error', 'assistant.error', 'assistant.idle']) {
     const sent: NotificationPayload[] = [];
     const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
@@ -133,45 +126,82 @@ test('long ask waits and aborted turns release reply evidence without clearing k
     await f.emit(turn('known-unread'));
     const generation = (await f.state()).generation;
     await invoke(f.backend, 'POST', '/read', { generation, keys: [key('already-read')] });
-    const cancelled = turn('cancelled');
-    await f.emit(cancelled.slice(0, -1));
+    const published = turn('published-before-stop');
+    await f.emit(published.slice(0, -1));
     await f.clock.advance(15 * 60_000 + 1);
     await f.emit([observation(ending, { aborted: true }, { ephemeral: true })]);
-    await f.emit([...cancelled, ...message('late'), ...turn().slice(-2)]);
-    assert.equal((await f.state()).total, 1);
-    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread']);
+    await f.emit([...published, ...message('late', { phase: undefined }), ...turn().slice(-2)]);
+    assert.equal((await f.state()).total, 2);
+    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'published-before-stop']);
 
-    await f.emit(turn('before-ask').slice(0, -2));
+    await f.emit(turn('before-ask', { phase: 'commentary' }).slice(0, -2));
     await f.emit([observation('user_input.requested', {}, { ephemeral: true })]);
     await f.control(ask('waiting'));
     await f.clock.advance(24 * 60 * 60_000);
-    assert.equal((await f.state()).total, 2);
-    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'waiting']);
+    assert.equal((await f.state()).total, 3);
+    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'published-before-stop', 'waiting']);
     await f.control(ask(null));
     await f.emit([observation('tool.execution_complete'), ...turn().slice(-2)]);
-    assert.equal((await f.state()).total, 1);
+    assert.equal((await f.state()).total, 2);
     await f.emit([...turn('already-read'), ...turn('after-ask')]);
-    assert.deepEqual((await f.state()).sessions[0]!.items.map(item => item.nativeId), ['after-ask', 'known-unread']);
+    assert.deepEqual((await f.state()).sessions[0]!.items.map(item => item.nativeId),
+      ['after-ask', 'known-unread', 'published-before-stop']);
     await f.clock.advance(3000);
-    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'waiting', 'after-ask']);
+    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'published-before-stop', 'waiting', 'after-ask']);
     assert.deepEqual(f.errors, []);
   }
 });
 
-test('real evidence overflow reports once, releases the rejected turn and allows later turns without resetting U', async t => {
+test('finals have no per-turn quota; invalid identity reports honestly and later valid events still work', async t => {
   const f = fixture(t);
   await f.emit(turn('known'));
-  const before = await f.state();
   await f.emit([turn()[0]!]);
-  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`));
-  assert.deepEqual(await f.state(), before);
+  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`, { phase: 'final_answer' }));
+  assert.equal((await f.state()).total, 130);
+  assert.equal(f.errors.length, 0);
+  const before = await f.state();
+  await f.emit(message('bad id'));
   assert.equal(f.errors.length, 1);
-  assert.equal((f.errors[0] as { code: string }).code, 'CLASSIFIER_TURN_CAPACITY');
-  await f.emit([...message('late'), ...turn().slice(-2)]);
+  assert.equal((f.errors[0] as { code: string }).code, 'INVALID_REPLY_IDENTITY');
+  await f.emit([...message('late', { phase: undefined }), ...turn().slice(-2)]);
   assert.deepEqual(await f.state(), before);
   await f.emit(turn('recovered'));
-  assert.equal((await f.state()).total, 2);
+  assert.equal((await f.state()).total, 131);
   assert.equal(f.errors.length, 1, 'later success does not falsify or clear the host report history');
+});
+
+test('unphased messages are ignored and every explicit final enters unread immediately with its own preview', async t => {
+  const sent: NotificationPayload[] = [];
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  await f.emit([turn()[0]!]);
+  for (let index = 0; index < 1000; index++) await f.emit(message(`ordinary-${index}`,
+    { content: `Ordinary ${index}`, phase: undefined }));
+  assert.equal((await f.state()).total, 0);
+  await f.emit(turn().slice(-2));
+  assert.equal((await f.state()).total, 0);
+  await f.clock.advance(3000);
+  assert.equal(sent.length, 0);
+
+  const generation = (await f.state()).generation;
+  await invoke(f.backend, 'POST', '/read', { generation, keys: [key('read-final')] });
+  await f.emit([
+    turn()[0]!,
+    ...message('read-final', { phase: 'final_answer', content: 'Already read' }),
+    ...message('first-final', { phase: 'final_answer', content: 'First final' }),
+    ...message('second-final', { phase: 'final_answer', content: 'Second final' }),
+    ...message('trailing-commentary', { phase: 'commentary' }),
+  ]);
+  assert.equal((await f.state()).total, 2, 'explicit finals do not wait for turn_end or idle');
+  await f.emit(turn().slice(-2));
+  assert.equal((await f.state()).total, 2);
+  await f.clock.advance(3000);
+  assert.deepEqual(sent.map(payload => [payload.key.nativeId, payload.body]), [
+    ['first-final', 'First final'], ['second-final', 'Second final'],
+  ]);
+  await f.emit([turn()[0]!, ...message('cancelled-final', { phase: 'final_answer' }), observation('abort'), ...turn().slice(-2)]);
+  assert.equal((await f.state()).total, 3);
+  assert.deepEqual(f.errors, []);
 });
 
 test('host ask add/null/replacement use requestId and retire instead of fabricating READ', async t => {
@@ -239,7 +269,7 @@ test('publication failures are reported after commit while READ receipts remain 
   assert.equal(f.invalidations.length, 0);
 });
 
-test('oversized NEW and READ batches publish one sync checkpoint each, with no truncation or extra channel', async t => {
+test('finals publish individual contiguous deltas and oversized READ publishes one complete sync checkpoint', async t => {
   const f = fixture(t);
   const keys = Array.from({ length: 128 }, (_, index) => key(`${index}:${'界'.repeat(196)}`));
   await f.emit([
@@ -249,28 +279,32 @@ test('oversized NEW and READ batches publish one sync checkpoint each, with no t
   ]);
   const snapshot = await f.state();
   assert.equal(snapshot.total, 128);
-  assert.equal(snapshot.revision, 1);
-  assert.deepEqual(f.publications, [{ type: 'unread/sync', generation: snapshot.generation, revision: 1 }]);
+  assert.equal(snapshot.revision, 128);
+  assert.equal(f.publications.length, 128);
+  for (const [index, publication] of f.publications.entries()) {
+    assert.deepEqual(publication, { type: 'unread/delta', generation: snapshot.generation,
+      fromRevision: index, revision: index + 1, added: [{ ...keys[index], createdRevision: index + 1 }], removed: [] });
+  }
   const read = await invoke(f.backend, 'POST', '/read', { generation: snapshot.generation, keys });
-  assert.deepEqual(parseReadResult(read.body), { generation: snapshot.generation, revision: 2, acknowledged: keys });
-  assert.deepEqual(f.publications[1], { type: 'unread/sync', generation: snapshot.generation, revision: 2 });
+  assert.deepEqual(parseReadResult(read.body), { generation: snapshot.generation, revision: 129, acknowledged: keys });
+  assert.deepEqual(f.publications[128], { type: 'unread/sync', generation: snapshot.generation, revision: 129 });
   assert.equal((await f.state()).total, 0);
   assert.equal(f.clock.timers.size, 0);
   await invoke(f.backend, 'POST', '/read', { generation: snapshot.generation, keys });
-  assert.equal(f.publications.length, 2);
+  assert.equal(f.publications.length, 129);
   assert.equal(f.invalidations.length, 0);
   assert.equal(f.errors.length, 0);
 });
 
-test('session deletion/rewind retire current and staged reminders; compaction does not', async t => {
+test('session deletion/rewind retire known reminders and prevent duplicate resurrection; compaction does not', async t => {
   const f = fixture(t);
   await f.emit(turn('readable'));
   await f.control(ask('ask'));
   await f.control({ type: 'chat/invalidated', sessionId: 'session-a', reason: 'compaction' });
   assert.equal((await f.state()).total, 2);
-  await f.emit(turn('staged').slice(0, 2));
+  await f.emit(message('published-before-rewind'));
   await f.control({ type: 'chat/invalidated', sessionId: 'session-a', reason: 'rewind' });
-  await f.emit(turn('staged'));
+  await f.emit(message('published-before-rewind'));
   assert.equal((await f.state()).total, 0);
   await f.emit(turn('after-rewind'));
   assert.equal((await f.state()).total, 1);

@@ -1,7 +1,23 @@
-# Cockpit Notification 0.1.12
+# Cockpit Notification 0.1.13
 
-## Changes from 0.1.11
+## Changes from 0.1.12
 
+- Subscribe only to live `assistant.message` events. A non-ephemeral primary-agent
+  message with `phase: final_answer`, nonempty text, no tool requests and a valid
+  identity immediately enters unread and publishes its delta.
+- Remove the stateful classifier entirely: no ordinary/final candidate cache, stream
+  evidence, turn/idle waiting, provider-call digest or separate event-ID deduplication.
+  Multiple explicit finals enter independently; later cancellation does not retract them.
+- Do not infer finals from missing/unknown phases, idle or text content. Providers that
+  omit the explicit marker will not produce reply unread entries under this policy.
+- Use existing message-key ledger deduplication and READ-before-NEW tombstones.
+  Retain unread/identity capacity checks, bounded push previews and the default 3-second
+  push delay. Ask control projection, rewind/deletion and module-stop behavior remain.
+- Newness relies on the paired host live observer contract, not the phase field alone.
+  No history reads or backfill are introduced. Real identity/publication/push errors
+  remain reported; the host error-history limitations below are unchanged.
+
+## Earlier 0.1.12 changes from 0.1.11
 - Read each message after any part of its block remains actually visible for 600ms.
   Continuous scrolling and changing visible sentences do not reset the clock.
   No chat-bottom, full-short-message, long-message-end or stable-position requirement.
@@ -15,6 +31,8 @@
   No host modification, real push, history replay or deployment is included.
 
 ## Earlier 0.1.11 changes from 0.1.10
+
+The turn-evidence rules below describe 0.1.11; 0.1.13 removes that classifier entirely.
 
 - Remove the 15-minute reply-evidence deadline, as requested in #18. Long replies and
   waits no longer lose classification evidence merely because time passes.
@@ -62,7 +80,7 @@ The radius and duration below describe 0.1.8 and are superseded by the refinemen
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
-This document describes the 0.1.12 source target, not proof of publication or deployment.
+This document describes the 0.1.13 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -71,8 +89,8 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.12 packages continuous block visibility under a new immutable version.
-It does not replace an already installed 0.1.11 digest. The earlier package
+0.1.13 packages immediate explicit-final admission under a new immutable version.
+It does not replace an already installed 0.1.12 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
 ## Earlier 0.1.7 changes from 0.1.6
@@ -185,7 +203,7 @@ and are superseded by the 0.1.7 background above.
 - Requires the paired host; earlier Web module slots are not supported.
 - Node 24.20.0, pnpm 10.34.5; fixed native SDK 1.0.13 / runtime 1.0.83 / protocol 3.
 - Restart establishes a fresh unread generation and forgets old unread entries; no historical backfill.
-- Unphased final replies use the agreed structural compatibility rule, not a perfect provider-independent classifier.
+- Missing/unknown phases are not counted; explicit phase availability is provider-dependent.
 - Other clients and sleeping devices may retain stale counts/notifications until their next successful synchronization.
   Already-sent notifications can arrive late; push delivery and instant notification retraction are not guaranteed.
 - Real iPhone/Android installed-PWA push delivery has not been established by the synthetic fixtures.

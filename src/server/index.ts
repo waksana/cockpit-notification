@@ -1,7 +1,7 @@
 import type { ModuleBackend, ModuleBackendContext, ModuleRequest, ModuleResponse, ModuleRoute,
   ServerEvent } from '@cockpit/module-api';
 import { identity, keyId, MAX_BATCH, MAX_IDENTITIES, parseKeys, record, type MessageKey } from '../shared/protocol.ts';
-import { NATIVE_TYPES, ReplyClassifier } from './classifier.ts';
+import { finalReply } from './final-reply.ts';
 import { BackendError, safeError } from './errors.ts';
 import { Ledger, type Change } from './ledger.ts';
 import { networkSender, PushScheduler, systemClock, type Clock, type Sender } from './push.ts';
@@ -25,7 +25,6 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
   const clock = dependencies.clock ?? systemClock;
   const store = new SubscriptionStore(context.dataRoot, config);
   const ledger = new Ledger();
-  const classifier = new ReplyClassifier();
   const asks = new Map<string, string>();
   const titles = new Map<string, string>();
   const removedSessions = new Set<string>();
@@ -60,9 +59,8 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
     titles.set(id, title);
   }
   function retireSession(sessionId: string): void {
-    const staged = classifier.reset(sessionId);
     const ask = asks.get(sessionId);
-    const keys = [...ledger.keysForSession(sessionId), ...staged, ...(ask ? [askKey(sessionId, ask)] : [])];
+    const keys = [...ledger.keysForSession(sessionId), ...(ask ? [askKey(sessionId, ask)] : [])];
     changed(ledger.transition([], keys));
     asks.delete(sessionId);
   }
@@ -132,7 +130,6 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
     stopped = true;
     context.signal.removeEventListener('abort', dispose);
     pushes.stop();
-    classifier.dispose();
     ledger.dispose();
     store.close();
     asks.clear();
@@ -173,12 +170,12 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
       }),
     ],
     events: {
-      types: NATIVE_TYPES,
+      types: ['assistant.message'],
       handle(observation) {
         if (stopped || context.signal.aborted || removedSessions.has(observation.sessionId)) return;
         try {
-          const replies = classifier.observe(observation);
-          changed(ledger.transition(replies.map(reply => reply.key)), replies);
+          const reply = finalReply(observation);
+          if (reply) changed(ledger.transition([reply.key]), [reply]);
         }
         catch (error) { report(error); }
       },

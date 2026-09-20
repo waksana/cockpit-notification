@@ -1,6 +1,6 @@
 # 模块与宿主协作边界
 
-**0.1.12 按消息 block 连续可见确认已读，保留回复证据生命周期修复、未读底色、独立菜单项注册与增量同步。** 0.1.0 的契约见其 tag；
+**0.1.13 明确 final 直接入账，沿用正文内未读底色、独立菜单项注册、增量同步与精简入口。** 0.1.0 的契约见其 tag；
 通用组件接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)，
 通用 SSE payload 通路来自 [waksana/cockpit#30](https://github.com/waksana/cockpit/pull/30)；
 准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
