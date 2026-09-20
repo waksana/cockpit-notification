@@ -5,7 +5,9 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration } from '@cockpit/module-api';
 import type { ComponentType, RefCallback } from 'react';
-import type { Snapshot, UnreadEvent } from '../shared/protocol.ts';
+import type { MessageKey, Snapshot, UnreadEvent } from '../shared/protocol.ts';
+import { keyId } from '../shared/protocol.ts';
+import type { UnreadStore } from './store.ts';
 import type { DeviceBridge, DeviceStatus } from './device.ts';
 
 const compiled = (await build({ entryPoints: [fileURLToPath(new URL('./index.tsx', import.meta.url))],
@@ -37,13 +39,22 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   let onEvent = (_event: UnreadEvent) => {};
   let invalidationSubscriptions = 0;
   let eventSubscriptions = 0;
-  const documentListeners = new Map<string, () => void>();
+  const documentListeners = new EventTarget();
   const frames = new Map<number, FrameRequestCallback>();
   const resizes = new Set<() => void>();
   const observedElements: HTMLElement[] = [];
   const serviceDisposals: string[] = [];
   const services: { id: string; instance: object; active: boolean; dispose(): void }[] = [];
-  const windowListeners = new Map<string, () => void>();
+  const windowListeners = new EventTarget();
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  const events = (target: EventTarget) => ({
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+      listeners.add(listener); target.addEventListener(type, listener);
+    },
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+      listeners.delete(listener); target.removeEventListener(type, listener);
+    },
+  });
   let nextFrame = 0;
   const replace = (name: string, value: unknown) => {
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
@@ -65,12 +76,10 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   replace('document', {
     body, get visibilityState() { return visible ? 'visible' : 'hidden'; },
     hasFocus: () => focus, elementFromPoint: () => obstructed ? null : element,
-    addEventListener: (type: string, listener: () => void) => documentListeners.set(type, listener),
-    removeEventListener: (type: string) => documentListeners.delete(type),
+    ...events(documentListeners),
   });
   replace('window', { innerHeight: 600, innerWidth: 300,
-    addEventListener: (type: string, listener: () => void) => windowListeners.set(type, listener),
-    removeEventListener: (type: string) => windowListeners.delete(type),
+    ...events(windowListeners),
   });
   replace('getComputedStyle', () => ({ visibility: 'visible', display: 'block', opacity: '1', overflowX: 'visible', overflowY: 'visible' }));
   replace('requestAnimationFrame', (callback: FrameRequestCallback) => { const id = ++nextFrame; frames.set(id, callback); return id; });
@@ -174,11 +183,17 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
       if (path === '/read') {
         const request = JSON.parse(String(init!.body));
         const fromRevision = current.revision;
+        const requested = new Set((request.keys as MessageKey[]).map(keyId));
         const removed = current.sessions.flatMap(session => session.items.map(item => ({
           sessionId: session.sessionId, kind: item.kind, nativeId: item.nativeId,
-        })));
-        current = { ...current, revision: current.revision + 1, total: 0, sessions: [] };
-        if (autoDelta) onEvent({ type: 'unread/delta', generation: current.generation,
+        }))).filter(key => requested.has(keyId(key)));
+        const sessions = current.sessions.map(session => {
+          const items = session.items.filter(item => !requested.has(keyId({ sessionId: session.sessionId, ...item })));
+          return { ...session, items, count: items.length };
+        }).filter(session => session.count > 0);
+        current = { ...current, revision: current.revision + (removed.length ? 1 : 0),
+          total: current.total - removed.length, sessions };
+        if (autoDelta && removed.length) onEvent({ type: 'unread/delta', generation: current.generation,
           fromRevision, revision: current.revision, added: [], removed });
         return Response.json({ acknowledged: request.keys, generation: current.generation, revision: current.revision });
       }
@@ -235,16 +250,18 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   t.after(() => { unmount(); controller.abort(); disposeServices(); restorers.reverse().forEach(restore => restore()); });
   return { context, element, calls, errors, controller, services, serviceDisposals, disposeServices,
     observedElements, renderMessage, marker, Base,
-    listeners: () => viewListeners.size + documentListeners.size + windowListeners.size,
+    listeners: () => viewListeners.size + listeners.size,
     observed: () => observed, invalidate: () => invalidate(),
     event: (value: UnreadEvent) => onEvent(value),
     subscriptions: () => ({ events: eventSubscriptions, invalidations: invalidationSubscriptions }),
     setAutoDelta: (value: boolean) => { autoDelta = value; },
     setSession(value: string) { sessionId = value; for (const listener of viewListeners) listener(); },
-    unmount, setFocus: (value: boolean) => { focus = value; }, setObstructed: (value: boolean) => { obstructed = value; },
+    unmount, setFocus: (value: boolean) => {
+      focus = value; windowListeners.dispatchEvent(new Event(value ? 'focus' : 'blur'));
+    }, setObstructed: (value: boolean) => { obstructed = value; },
     setInert: (value: boolean) => { inert = value; }, setRect: (value: typeof rect) => { rect = value; },
     resize() { for (const resize of resizes) resize(); },
-    setVisible(value: boolean) { visible = value; documentListeners.get('visibilitychange')?.(); },
+    setVisible(value: boolean) { visible = value; documentListeners.dispatchEvent(new Event('visibilitychange')); },
     setConnected(value: boolean) { connected = value; for (const listener of viewListeners) listener(); },
     frame(now: number) { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(now)); },
     render, flushEffects,
@@ -352,7 +369,8 @@ test('registered state disposal is host-owned and module cleanup only unsubscrib
   const frontend = await activate(f.context);
   await settle();
   f.renderMessage(frontend);
-  assert.equal(f.listeners(), 4);
+  assert.equal(f.listeners(), 3);
+  f.unmount();
   frontend.dispose?.();
   frontend.dispose?.();
   f.controller.abort();
@@ -369,7 +387,7 @@ test('registered state disposal is host-owned and module cleanup only unsubscrib
   assert.deepEqual(f.errors, []);
 });
 
-test('short visible root assistant reply reads once after stable600ms and the receipt causes no redundant GET', async t => {
+test('short visible root assistant reply reads once after continuous 600ms and the receipt causes no redundant GET', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
@@ -407,6 +425,107 @@ test('only typed authority events remove highlights; HTTP receipt and generic in
   assert.equal(f.calls.length, 2);
 });
 
+test('compiled message middleware reads a continuously scrolling long block, not earlier messages or another session', async t => {
+  const f = fixture(t, { ...base, total: 3, sessions: [
+    { sessionId: 'session-a', count: 2, items: [
+      { kind: 'reply', nativeId: 'earlier', createdRevision: 1 }, ...base.sessions[0]!.items,
+    ] },
+    { sessionId: 'session-b', count: 1, items: [{ kind: 'reply', nativeId: 'elsewhere', createdRevision: 1 }] },
+  ] });
+  const frontend = await activate(f.context);
+  await settle();
+  f.renderMessage(frontend);
+  for (const now of [0, 100, 200, 300, 400, 500, 599]) {
+    const top = -now * 4;
+    f.setRect({ top, bottom: top + 4000, left: 10, right: 290, width: 280, height: 4000 });
+    f.frame(now);
+  }
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 1, '599ms never queues a receipt');
+  f.frame(600);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.deepEqual(JSON.parse(String(f.calls[1]!.init?.body)).keys,
+    [{ sessionId: 'session-a', kind: 'reply', nativeId: 'reply-a' }]);
+  const store = f.services.find(service => service.id === 'unread-store')!.instance as UnreadStore;
+  assert.equal(store.getSnapshot().snapshot?.total, 2);
+  assert.deepEqual(store.getSnapshot().snapshot?.sessions.map(session => [session.sessionId, session.count]), [
+    ['session-a', 1], ['session-b', 1],
+  ]);
+  assert.equal(f.marker(frontend), null);
+  f.frame(1200);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 2, 'the same block cannot send a second receipt');
+});
+
+test('compiled middleware reads a short message with only a small visible ending', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  f.setRect({ top: -190, bottom: 10, left: 10, right: 290, width: 280, height: 200 });
+  f.renderMessage(frontend);
+  f.frame(0); f.frame(600);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls[1]?.path, '/read');
+});
+
+for (const gate of ['session', 'focus', 'visibility']) {
+  test(`compiled middleware cancels a ${gate} interruption even without an intervening frame or render`, async t => {
+    const f = fixture(t);
+    const frontend = await activate(f.context);
+    await settle();
+    f.renderMessage(frontend);
+    f.frame(0); f.frame(500);
+    if (gate === 'session') { f.setSession('session-b'); f.setSession('session-a'); }
+    if (gate === 'focus') { f.setFocus(false); f.setFocus(true); }
+    if (gate === 'visibility') { f.setVisible(false); f.setVisible(true); }
+    f.frame(1000); f.frame(1599);
+    await new Promise(resolve => setTimeout(resolve, 180));
+    assert.equal(f.calls.length, 1);
+    f.frame(1600);
+    await new Promise(resolve => setTimeout(resolve, 180));
+    assert.equal(f.calls[1]?.path, '/read');
+  });
+}
+
+test('DOM reuse for a different message identity starts a new clock and only acknowledges the new identity', async t => {
+  const f = fixture(t, { ...base, total: 2, sessions: [{
+    ...base.sessions[0]!, count: 2,
+    items: [...base.sessions[0]!.items, { kind: 'reply', nativeId: 'reply-b', createdRevision: 1 }],
+  }] });
+  const frontend = await activate(f.context);
+  await settle();
+  f.renderMessage(frontend);
+  f.frame(0); f.frame(500);
+  const next = { ...props, identity: { ...props.identity, id: 'reply-b' } };
+  f.renderMessage(frontend, next);
+  f.frame(550); f.frame(1149);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 1);
+  f.frame(1150);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.deepEqual(JSON.parse(String(f.calls[1]!.init?.body)).keys,
+    [{ sessionId: 'session-a', kind: 'reply', nativeId: 'reply-b' }]);
+  assert.notEqual(f.marker(frontend, props), null, 'the earlier block remains unread');
+});
+
+test('losing complete/root eligibility cancels a pending clock on the same DOM body', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  f.renderMessage(frontend);
+  f.frame(0); f.frame(500);
+  f.renderMessage(frontend, { ...props, complete: false });
+  f.frame(1000);
+  f.renderMessage(frontend);
+  f.frame(1100); f.frame(1699);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 1);
+  f.renderMessage(frontend, { ...props, identity: { ...props.identity, agentId: 'child' } });
+  f.frame(2000);
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(f.calls.length, 1);
+});
+
 test('module-global state persists through session changes and connected hidden delta delivery', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
@@ -422,7 +541,7 @@ test('module-global state persists through session changes and connected hidden 
   assert.equal(f.services.length, 2);
 });
 
-test('ask has no highlight but preserves the component and reports its exact identity after stable presentation', async t => {
+test('ask has no highlight but preserves the component and reports its exact identity after continuous presentation', async t => {
   const snapshot: Snapshot = { ...base, sessions: [{ sessionId: 'session-a', count: 1,
     items: [{ kind: 'ask', nativeId: 'host-request-42', createdRevision: 1 }] }] };
   const f = fixture(t, snapshot);
@@ -552,7 +671,7 @@ test('sub-agent, user and incomplete outputs are not observed; current pending a
   assert.equal(f.calls.every(call => ['/state', '/read'].includes(call.path)), true);
 });
 
-test('focus loss, obstruction and inert ancestors reset the stable read timer instead of counting hidden time', async t => {
+test('focus loss, obstruction and inert ancestors reset the read timer instead of counting hidden time', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
