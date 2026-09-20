@@ -1,38 +1,26 @@
-export interface Rectangle { top: number; bottom: number; left: number; right: number; height: number; width: number }
-export function visibleRegion(rect: Rectangle, intersection: Rectangle,
-  viewport: { top: number; left: number; height: number; width: number }): Rectangle | null {
-  if (rect.height <= 0 || rect.width <= 0 || intersection.width < rect.width - 1 ||
-      rect.left < viewport.left - 1 || rect.right > viewport.left + viewport.width + 1 ||
-      rect.bottom > viewport.top + viewport.height + 1 || rect.bottom <= viewport.top) return null;
-  const long = rect.height > viewport.height;
-  const top = long ? Math.max(rect.top, rect.bottom - Math.min(48, viewport.height)) : rect.top;
-  // clientWidth/clientHeight round to integers while DOMRect preserves subpixels.
-  if (top < viewport.top - 1 || intersection.top > top + 1 || intersection.bottom < rect.bottom - 1) return null;
-  return { top, bottom: rect.bottom, left: rect.left, right: rect.right,
-    width: rect.width, height: rect.bottom - top };
-}
 export function observeRead(element: HTMLElement, allowed: () => boolean, presented: () => void,
   delay: number): () => void {
   if (typeof IntersectionObserver === 'undefined' || typeof document.elementFromPoint !== 'function') return () => {};
   let intersecting = false;
   let frame = 0;
   let start: number | null = null;
-  let signature = '';
   let stopped = false;
   let completed = false;
   const valid = () => {
     if (!allowed() || !element.isConnected || document.visibilityState !== 'visible' || !document.hasFocus() ||
-        element.closest('[inert], [aria-hidden="true"], [hidden]') || !intersecting) return null;
+        element.closest('[inert], [aria-hidden="true"], [hidden]') || !intersecting) return false;
     const rect = element.getBoundingClientRect();
     const viewport = window.visualViewport;
-    let top = viewport?.offsetTop ?? 0;
-    let left = viewport?.offsetLeft ?? 0;
-    let right = left + (viewport?.width ?? window.innerWidth);
-    let bottom = top + (viewport?.height ?? window.innerHeight);
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    let top = Math.max(rect.top, viewportTop);
+    let left = Math.max(rect.left, viewportLeft);
+    let right = Math.min(rect.right, viewportLeft + (viewport?.width ?? window.innerWidth));
+    let bottom = Math.min(rect.bottom, viewportTop + (viewport?.height ?? window.innerHeight));
     // Inspect only the supplied element's ancestor chain, not host selectors or private state.
     for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
       const style = getComputedStyle(ancestor);
-      if (style.visibility !== 'visible' || style.display === 'none' || Number(style.opacity) === 0) return null;
+      if (style.visibility !== 'visible' || style.display === 'none' || Number(style.opacity) === 0) return false;
       if (ancestor === element) continue;
       const bounds = ancestor.getBoundingClientRect();
       if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
@@ -44,40 +32,43 @@ export function observeRead(element: HTMLElement, allowed: () => boolean, presen
         bottom = Math.min(bottom, bounds.top + ancestor.clientTop + ancestor.clientHeight);
       }
     }
-    if (right <= left || bottom <= top) return null;
-    const intersection = { top: Math.max(rect.top, top), bottom: Math.min(rect.bottom, bottom),
-      left: Math.max(rect.left, left), right: Math.min(rect.right, right),
-      width: Math.max(0, Math.min(rect.right, right) - Math.max(rect.left, left)),
-      height: Math.max(0, Math.min(rect.bottom, bottom) - Math.max(rect.top, top)) };
-    const region = visibleRegion(rect, intersection, { top, left, width: right - left, height: bottom - top });
-    if (!region) return null;
-    for (const x of [region.left + Math.min(8, region.width / 4), (region.left + region.right) / 2, region.right - Math.min(8, region.width / 4)]) {
-      for (const y of [region.top + Math.min(4, region.height / 4), (region.top + region.bottom) / 2, region.bottom - Math.min(4, region.height / 4)]) {
+    if (right <= left || bottom <= top) return false;
+    for (const x of [left + Math.min(8, (right - left) / 4), (left + right) / 2, right - Math.min(8, (right - left) / 4)]) {
+      for (const y of [top + Math.min(4, (bottom - top) / 4), (top + bottom) / 2, bottom - Math.min(4, (bottom - top) / 4)]) {
         const hit = document.elementFromPoint(x, y);
-        if (!hit || !element.contains(hit)) return null;
+        if (hit && element.contains(hit)) return true;
       }
     }
-    return [rect.top, rect.bottom, rect.left, rect.right].join(',');
+    return false;
   };
   const tick = (now: number) => {
     if (stopped || completed) return;
-    const next = valid();
-    if (next === null) { start = null; signature = ''; }
-    else if (start === null || next !== signature) { start = now; signature = next; }
+    if (!valid()) start = null;
+    else if (start === null) start = now;
     else if (now - start >= delay) { completed = true; presented(); return; }
     frame = requestAnimationFrame(tick);
   };
   const observer = new IntersectionObserver(entries => {
-    const entry = entries.find(item => item.target === element);
-    if (!entry) return;
-    intersecting = entry.isIntersecting;
-    if (!intersecting) {
-      cancelAnimationFrame(frame);
-      frame = 0;
-      start = null;
-      signature = '';
-    } else if (!frame && !completed) frame = requestAnimationFrame(tick);
-  }, { threshold: [0, 0.01, 0.5, 1] });
+    for (const entry of entries) {
+      if (entry.target !== element) continue;
+      intersecting = entry.isIntersecting;
+      if (!intersecting) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        start = null;
+      } else if (!frame && !completed && !stopped) frame = requestAnimationFrame(tick);
+    }
+  }, { threshold: 0 });
+  // Background tabs may not run a frame between losing and regaining visibility.
+  const reset = () => { start = null; };
+  document.addEventListener('visibilitychange', reset);
+  window.addEventListener('blur', reset);
   observer.observe(element);
-  return () => { stopped = true; observer.disconnect(); cancelAnimationFrame(frame); };
+  return () => {
+    stopped = true;
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    document.removeEventListener('visibilitychange', reset);
+    window.removeEventListener('blur', reset);
+  };
 }

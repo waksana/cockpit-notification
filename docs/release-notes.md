@@ -1,6 +1,6 @@
-# Cockpit Notification 0.1.12
+# Cockpit Notification 0.1.13
 
-## Changes from 0.1.11
+## Changes from 0.1.12
 
 - Subscribe only to live `assistant.message` events. A non-ephemeral primary-agent
   message with `phase: final_answer`, nonempty text, no tool requests and a valid
@@ -17,9 +17,22 @@
   No history reads or backfill are introduced. Real identity/publication/push errors
   remain reported; the host error-history limitations below are unchanged.
 
+## Earlier 0.1.12 changes from 0.1.11
+- Read each message after any part of its block remains actually visible for 600ms.
+  Continuous scrolling and changing visible sentences do not reset the clock.
+  No chat-bottom, full-short-message, long-message-end or stable-position requirement.
+- Intersect the message with the viewport and ancestor clips, and hit-test only that
+  remaining region. Preserve focus, foreground, hidden/inert and occlusion gates.
+  Full exit, lost eligibility, session/identity changes and unmount cancel exposure;
+  reentry starts from zero, with no accumulation across interruptions.
+- Acknowledge only that message. Retain batching, idempotent receipts, authority-driven
+  counts/badges, cross-client synchronization, 1000ms fading and backend classification.
+- Retain the 0.1.11 bounded evidence lifecycle fix and the exact SDK pin.
+  No host modification, real push, history replay or deployment is included.
+
 ## Earlier 0.1.11 changes from 0.1.10
 
-The turn-evidence rules below describe 0.1.11; 0.1.12 removes that classifier entirely.
+The turn-evidence rules below describe 0.1.11; 0.1.13 removes that classifier entirely.
 
 - Remove the 15-minute reply-evidence deadline, as requested in #18. Long replies and
   waits no longer lose classification evidence merely because time passes.
@@ -67,7 +80,7 @@ The radius and duration below describe 0.1.8 and are superseded by the refinemen
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
-This document describes the 0.1.12 source target, not proof of publication or deployment.
+This document describes the 0.1.13 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -76,8 +89,8 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.12 packages immediate explicit-final admission under a new immutable version.
-It does not replace an already installed 0.1.11 digest. The earlier package
+0.1.13 packages immediate explicit-final admission under a new immutable version.
+It does not replace an already installed 0.1.12 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
 ## Earlier 0.1.7 changes from 0.1.6
