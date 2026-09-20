@@ -72,6 +72,53 @@ test('unphased split output only promotes last nonempty message, distinct explic
   assert.deepEqual(collect(explicit), [key('first'), key('last')]);
 });
 
+test('ordinary output only retains the latest candidate, not a growing list of completed messages', () => {
+  const classifier = new ReplyClassifier();
+  classifier.observe(turn()[0]!);
+  for (let index = 0; index < 1000; index++) {
+    assert.deepEqual(collect(message(`progress-${index}`, { content: `Progress ${index}` }), classifier), []);
+  }
+  assert.deepEqual(classifier.reset('session-a'), [key('progress-999')]);
+
+  classifier.observe(turn()[0]!);
+  for (let index = 0; index < 1000; index++) collect(message(`next-${index}`), classifier);
+  assert.deepEqual(collect(turn().slice(-2), classifier), [key('next-999')]);
+  assert.deepEqual(classifier.reset('session-a'), []);
+});
+
+test('excluded and non-live nonempty messages discard the fallback instead of reviving an older candidate', () => {
+  for (const last of [
+    message('last', { phase: 'commentary' }),
+    message('last', { phase: 'unknown' }),
+    [message('last').at(-1)!],
+  ]) {
+    const classifier = new ReplyClassifier();
+    collect([turn()[0]!, ...message('earlier'), ...last], classifier);
+    assert.deepEqual(classifier.reset('session-a'), []);
+    assert.deepEqual(collect(turn().slice(-2), classifier), []);
+  }
+  const classifier = new ReplyClassifier();
+  classifier.observe(turn()[0]!);
+  for (let index = 0; index < 1000; index++) collect(message(`commentary-${index}`, { phase: 'commentary' }), classifier);
+  assert.deepEqual(classifier.reset('session-a'), []);
+});
+
+test('all explicit finals retain their own previews while subsequent ordinary output is discarded', () => {
+  const classifier = new ReplyClassifier();
+  collect([turn()[0]!, ...message('fallback')], classifier);
+  const first = message('first', { phase: 'final_answer', content: 'First final' });
+  const second = message('second', { phase: 'final_answer', content: 'Second final' });
+  // Stream identities may interleave; only identity, never token content, is retained.
+  collect([first[0]!, second[0]!, first.at(-1)!, second.at(-1)!], classifier);
+  for (let index = 0; index < 1000; index++) collect(message(`progress-${index}`), classifier);
+  assert.deepEqual(classifier.observe(turn().at(-2)!), []);
+  assert.deepEqual(classifier.observe(turn().at(-1)!), [
+    { key: key('first'), summary: 'First final' },
+    { key: key('second'), summary: 'Second final' },
+  ]);
+  assert.deepEqual(classifier.reset('session-a'), []);
+});
+
 test('only the classified final carries a bounded excerpt, never streamed progress or reasoning', () => {
   const classifier = new ReplyClassifier();
   const events = [
@@ -216,14 +263,15 @@ test('active turn budget never evicts other sessions and is freed by terminal ev
   }
 });
 
-test('stream evidence is bounded by number of events and combined per-turn message identities', () => {
+test('stream evidence and distinct explicit finals remain bounded without capping ordinary completed output', () => {
   const bounded = new ReplyClassifier(1);
   bounded.observe(turn()[0]!);
   assert.throws(() => bounded.observe(message().at(-1)!), { code: 'CLASSIFIER_CAPACITY' });
   const many = new ReplyClassifier();
   many.observe(turn()[0]!);
-  for (let index = 0; index < 128; index++) collect(message(`message-${index}`), many);
-  assert.throws(() => collect(message('overflow'), many), { code: 'CLASSIFIER_TURN_CAPACITY' });
+  for (let index = 0; index < 128; index++) collect(message(`message-${index}`, { phase: 'final_answer' }), many);
+  collect(message('message-0', { phase: 'final_answer' }), many);
+  assert.throws(() => collect(message('overflow', { phase: 'final_answer' }), many), { code: 'CLASSIFIER_TURN_CAPACITY' });
   assert.deepEqual(collect(turn().slice(-2), many), []);
   assert.deepEqual(many.reset('session-a'), []);
   const streams = new ReplyClassifier();
@@ -233,9 +281,8 @@ test('stream evidence is bounded by number of events and combined per-turn messa
   assert.deepEqual(streams.reset('session-a'), []);
   const mixed = new ReplyClassifier();
   mixed.observe(turn()[0]!);
-  for (let index = 0; index < 64; index++) collect(message(`message-${index}`), mixed);
-  for (let index = 0; index < 64; index++) mixed.observe(message(`stream-${index}`)[0]!);
-  mixed.observe(message('stream-0').at(-1)!);
+  for (let index = 0; index < 128; index++) collect(message(`message-${index}`, { phase: 'final_answer' }), mixed);
+  for (let index = 0; index < 128; index++) mixed.observe(message(`stream-${index}`)[0]!);
   assert.throws(() => mixed.observe(message('overflow')[0]!), { code: 'CLASSIFIER_TURN_CAPACITY' });
   assert.deepEqual(collect(turn('after-capacity'), mixed), [key('after-capacity')]);
 });

@@ -1,6 +1,23 @@
-# Cockpit Notification 0.1.11
+# Cockpit Notification 0.1.12
 
-## Changes from 0.1.10
+## Changes from 0.1.11
+
+- Keep only the latest ordinary unphased reply candidate per session, replacing
+  earlier candidates instead of accumulating completed-message records.
+  Discard excluded nonempty messages immediately without reviving an older fallback.
+- Preserve every distinct explicit final and its bounded preview until normal completion,
+  as requested. Explicit finals are not pushed before cancellation/tool checks settle.
+  Once an explicit final exists, ordinary fallback candidates need not be retained.
+- Keep bounded live-stream identity tracking for interleaved messages, with no token
+  text accumulation. Pending stream identities and distinct explicit finals each have
+  a 128-entry limit; sequential ordinary/commentary output does not consume that quota.
+- Preserve the untimed lifecycle, existing READ/unread identity and ask/push semantics.
+  The host error-history and already-lost-evidence limitations below remain unchanged.
+
+## Earlier 0.1.11 changes from 0.1.10
+
+The combined per-turn limit below describes 0.1.11; 0.1.12 replaces completed-message
+accumulation with the latest ordinary candidate and separate explicit-final records.
 
 - Remove the 15-minute reply-evidence deadline, as requested in #18. Long replies and
   waits no longer lose classification evidence merely because time passes.
@@ -48,7 +65,7 @@ The radius and duration below describe 0.1.8 and are superseded by the refinemen
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
-This document describes the 0.1.11 source target, not proof of publication or deployment.
+This document describes the 0.1.12 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -57,8 +74,8 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.11 packages the bounded, untimed reply classifier under a new immutable version.
-It does not replace an already installed 0.1.10 digest. The earlier package
+0.1.12 packages the latest-candidate simplification under a new immutable version.
+It does not replace an already installed 0.1.11 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
 ## Earlier 0.1.7 changes from 0.1.6

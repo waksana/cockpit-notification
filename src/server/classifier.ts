@@ -17,7 +17,8 @@ interface Turn {
   closed: boolean;
   apiCallHash?: string;
   streams: Set<string>;
-  messages: (NotificationPreview & { phase: 'final_answer' | 'excluded' | undefined; live: boolean })[];
+  latest?: NotificationPreview;
+  finals: Map<string, NotificationPreview>;
 }
 
 function root(event: Record<string, unknown>, data: Record<string, unknown>): boolean {
@@ -43,7 +44,8 @@ export class ReplyClassifier {
   reset(sessionId: string): MessageKey[] {
     const turn = this.#turns.get(sessionId);
     this.#turns.delete(sessionId);
-    return turn ? [...turn.messages.map(message => message.key),
+    return turn ? [...[...turn.finals.values()].map(message => message.key),
+      ...(turn.latest ? [turn.latest.key] : []),
       ...[...turn.streams].map(nativeId => ({ sessionId, kind: 'reply' as const, nativeId }))] : [];
   }
 
@@ -75,7 +77,7 @@ export class ReplyClassifier {
         if (this.#turns.size >= MAX_ACTIVE_TURNS) {
           throw new BackendError('CLASSIFIER_ACTIVE_CAPACITY', 'Live reply evidence reached the active turn limit', 503);
         }
-        this.#turns.set(sessionId, { turnId: data.turnId, closed: false, streams: new Set(), messages: [] });
+        this.#turns.set(sessionId, { turnId: data.turnId, closed: false, streams: new Set(), finals: new Map() });
       }
       return [];
     }
@@ -92,7 +94,7 @@ export class ReplyClassifier {
       if (turn.closed || (data.turnId !== undefined && data.turnId !== turn.turnId)) {
         return this.#discardTurn(sessionId);
       }
-      if (!turn.streams.has(data.messageId) && turn.streams.size + turn.messages.length >= MAX_BATCH) {
+      if (!turn.streams.has(data.messageId) && turn.streams.size >= MAX_BATCH) {
         this.#turns.delete(sessionId);
         throw new BackendError('CLASSIFIER_TURN_CAPACITY', 'Live reply turn exceeded the message evidence limit', 503);
       }
@@ -102,11 +104,8 @@ export class ReplyClassifier {
     if (event.type === 'assistant.idle') {
       this.#turns.delete(sessionId);
       if (event.ephemeral !== true || data.aborted === true || !turn.closed) return [];
-      const explicit = turn.messages.filter(message => message.live && message.phase === 'final_answer')
-        .map(({ key, summary }) => ({ key, summary }));
-      if (explicit.length) return explicit;
-      const last = turn.messages.at(-1);
-      return last?.live && last.phase === undefined ? [{ key: last.key, summary: last.summary }] : [];
+      if (turn.finals.size) return [...turn.finals.values()];
+      return turn.latest ? [turn.latest] : [];
     }
     if (event.type === 'assistant.turn_end') {
       if (event.ephemeral === true || data.turnId !== turn.turnId || data.aborted === true ||
@@ -134,13 +133,22 @@ export class ReplyClassifier {
     if (!identity(data.messageId)) {
       return this.#discardTurn(sessionId);
     }
-    if (turn.messages.length + turn.streams.size >= MAX_BATCH) {
-      this.#turns.delete(sessionId);
-      throw new BackendError('CLASSIFIER_TURN_CAPACITY', 'Live reply turn exceeded the message evidence limit', 503);
+    // Only the latest nonempty unphased message can be the fallback final.
+    // Explicit finals remain distinct, but neither kind is confirmed before idle.
+    turn.latest = undefined;
+    if (!live || (data.phase !== undefined && data.phase !== 'final_answer')) return [];
+    if (data.phase === undefined && turn.finals.size) return [];
+    const preview = { key: { sessionId, kind: 'reply' as const, nativeId: data.messageId },
+      summary: notificationExcerpt(data.content) };
+    if (data.phase === undefined) {
+      turn.latest = preview;
+      return [];
     }
-    const phase = data.phase === undefined ? undefined : data.phase === 'final_answer' ? 'final_answer' : 'excluded';
-    turn.messages.push({ key: { sessionId, kind: 'reply', nativeId: data.messageId },
-      summary: live && phase !== 'excluded' ? notificationExcerpt(data.content) : '', phase, live });
+    if (!turn.finals.has(data.messageId) && turn.finals.size >= MAX_BATCH) {
+      this.#turns.delete(sessionId);
+      throw new BackendError('CLASSIFIER_TURN_CAPACITY', 'Live reply turn exceeded the final message evidence limit', 503);
+    }
+    turn.finals.set(data.messageId, preview);
     return [];
   }
 }

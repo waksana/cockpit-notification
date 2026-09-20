@@ -163,7 +163,7 @@ test('real evidence overflow reports once, releases the rejected turn and allows
   await f.emit(turn('known'));
   const before = await f.state();
   await f.emit([turn()[0]!]);
-  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`));
+  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`, { phase: 'final_answer' }));
   assert.deepEqual(await f.state(), before);
   assert.equal(f.errors.length, 1);
   assert.equal((f.errors[0] as { code: string }).code, 'CLASSIFIER_TURN_CAPACITY');
@@ -172,6 +172,39 @@ test('real evidence overflow reports once, releases the rejected turn and allows
   await f.emit(turn('recovered'));
   assert.equal((await f.state()).total, 2);
   assert.equal(f.errors.length, 1, 'later success does not falsify or clear the host report history');
+});
+
+test('many ordinary messages produce only the latest unread and preview, while explicit finals stay separate', async t => {
+  const sent: NotificationPayload[] = [];
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+  await f.emit([turn()[0]!]);
+  for (let index = 0; index < 1000; index++) await f.emit(message(`ordinary-${index}`, { content: `Ordinary ${index}` }));
+  assert.equal((await f.state()).total, 0);
+  await f.emit(turn().slice(-2));
+  assert.equal((await f.state()).total, 1);
+  await f.clock.advance(3000);
+  assert.deepEqual(sent.map(payload => [payload.key.nativeId, payload.body]), [['ordinary-999', 'Ordinary 999']]);
+
+  const generation = (await f.state()).generation;
+  await invoke(f.backend, 'POST', '/read', { generation, keys: [key('read-final')] });
+  await f.emit([
+    turn()[0]!,
+    ...message('read-final', { phase: 'final_answer', content: 'Already read' }),
+    ...message('first-final', { phase: 'final_answer', content: 'First final' }),
+    ...message('second-final', { phase: 'final_answer', content: 'Second final' }),
+    ...message('trailing-commentary', { phase: 'commentary' }),
+  ]);
+  assert.equal((await f.state()).total, 1, 'explicit finals still wait for normal completion');
+  await f.emit(turn().slice(-2));
+  assert.equal((await f.state()).total, 3);
+  await f.clock.advance(3000);
+  assert.deepEqual(sent.map(payload => [payload.key.nativeId, payload.body]), [
+    ['ordinary-999', 'Ordinary 999'], ['first-final', 'First final'], ['second-final', 'Second final'],
+  ]);
+  await f.emit([turn()[0]!, ...message('cancelled-final', { phase: 'final_answer' }), observation('abort'), ...turn().slice(-2)]);
+  assert.equal((await f.state()).total, 3);
+  assert.deepEqual(f.errors, []);
 });
 
 test('host ask add/null/replacement use requestId and retire instead of fabricating READ', async t => {
