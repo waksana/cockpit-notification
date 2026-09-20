@@ -90,6 +90,90 @@ test('restarted backend ignores durable historical views and only counts a fresh
   assert.equal(state.sessions[0]!.items[0]!.nativeId, 'fresh');
 });
 
+test('long replies cross the former 15-minute boundary without losing unread, identity or push preview', async t => {
+  for (const elapsed of [15 * 60_000 - 1, 15 * 60_000, 15 * 60_000 + 1, 24 * 60 * 60_000]) {
+    for (const split of [1, 2, 4, 5]) {
+      const sent: NotificationPayload[] = [];
+      const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+      await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+      const events = turn('long', { phase: 'final_answer', content: '**Long reply** completed' });
+      await f.emit(events.slice(0, split));
+      const before = await f.state();
+      assert.equal(before.total, 0);
+      assert.equal(f.clock.timers.size, 0, 'classification has no expiration timer');
+      await f.clock.advance(elapsed);
+      assert.deepEqual(await f.state(), before);
+      await f.emit(events.slice(split));
+      assert.equal((await f.state()).total, 1);
+      assert.equal(sent.length, 0, 'unread does not wait for the push window');
+      await f.clock.advance(3000);
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0]!.body, 'Long reply completed');
+      assert.deepEqual(sent[0]!.key, key('long'));
+      assert.equal(sent[0]!.total, 1);
+      const completed = await f.state();
+      await f.clock.advance(elapsed);
+      await f.emit([...events, ...message('late'), ...turn().slice(-2)]);
+      assert.deepEqual(await f.state(), completed);
+      await invoke(f.backend, 'POST', '/read', { generation: completed.generation, keys: [key('long'), key('early')] });
+      await f.emit([...events, ...turn('early')]);
+      assert.equal((await f.state()).total, 0);
+      await f.emit(turn('next'));
+      assert.equal((await f.state()).total, 1);
+      assert.deepEqual(f.errors, []);
+    }
+  }
+});
+
+test('long ask waits and aborted turns release reply evidence without clearing known unread or READ identities', async t => {
+  for (const ending of ['abort', 'session.error', 'assistant.error', 'assistant.idle']) {
+    const sent: NotificationPayload[] = [];
+    const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+    await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
+    await f.emit(turn('known-unread'));
+    const generation = (await f.state()).generation;
+    await invoke(f.backend, 'POST', '/read', { generation, keys: [key('already-read')] });
+    const cancelled = turn('cancelled');
+    await f.emit(cancelled.slice(0, -1));
+    await f.clock.advance(15 * 60_000 + 1);
+    await f.emit([observation(ending, { aborted: true }, { ephemeral: true })]);
+    await f.emit([...cancelled, ...message('late'), ...turn().slice(-2)]);
+    assert.equal((await f.state()).total, 1);
+    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread']);
+
+    await f.emit(turn('before-ask').slice(0, -2));
+    await f.emit([observation('user_input.requested', {}, { ephemeral: true })]);
+    await f.control(ask('waiting'));
+    await f.clock.advance(24 * 60 * 60_000);
+    assert.equal((await f.state()).total, 2);
+    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'waiting']);
+    await f.control(ask(null));
+    await f.emit([observation('tool.execution_complete'), ...turn().slice(-2)]);
+    assert.equal((await f.state()).total, 1);
+    await f.emit([...turn('already-read'), ...turn('after-ask')]);
+    assert.deepEqual((await f.state()).sessions[0]!.items.map(item => item.nativeId), ['after-ask', 'known-unread']);
+    await f.clock.advance(3000);
+    assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'waiting', 'after-ask']);
+    assert.deepEqual(f.errors, []);
+  }
+});
+
+test('real evidence overflow reports once, releases the rejected turn and allows later turns without resetting U', async t => {
+  const f = fixture(t);
+  await f.emit(turn('known'));
+  const before = await f.state();
+  await f.emit([turn()[0]!]);
+  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`));
+  assert.deepEqual(await f.state(), before);
+  assert.equal(f.errors.length, 1);
+  assert.equal((f.errors[0] as { code: string }).code, 'CLASSIFIER_TURN_CAPACITY');
+  await f.emit([...message('late'), ...turn().slice(-2)]);
+  assert.deepEqual(await f.state(), before);
+  await f.emit(turn('recovered'));
+  assert.equal((await f.state()).total, 2);
+  assert.equal(f.errors.length, 1, 'later success does not falsify or clear the host report history');
+});
+
 test('host ask add/null/replacement use requestId and retire instead of fabricating READ', async t => {
   const f = fixture(t);
   await f.control(ask('a'));

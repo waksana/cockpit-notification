@@ -4,14 +4,14 @@ import { ReplyClassifier } from './classifier.ts';
 import { key, message, observation, turn } from './native-fixtures.ts';
 import type { NativeObservation } from '@cockpit/module-api';
 
-function collect(events: NativeObservation[], classifier = new ReplyClassifier(() => 0)) {
+function collect(events: NativeObservation[], classifier = new ReplyClassifier()) {
   return events.flatMap(event => classifier.observe(event)).map(reply => reply.key);
 }
 
 test('explicit final and unphased final require live message evidence, main start, end and nonaborted ephemeral idle', () => {
   for (const phase of [undefined, 'final_answer']) {
     const events = turn('reply', { phase });
-    const classifier = new ReplyClassifier(() => 0);
+    const classifier = new ReplyClassifier();
     assert.deepEqual(collect(events.slice(0, -1), classifier), []);
     assert.deepEqual(classifier.observe(events.at(-1)!).map(reply => reply.key), [key('reply')]);
     assert.deepEqual(collect(events, classifier), []);
@@ -25,8 +25,8 @@ test('durable history replay followed by fresh idle never produces unread after 
     const history = turn('history', { phase }).filter(event => event.event.ephemeral !== true);
     const replay = [...history, observation('assistant.idle', {}, { ephemeral: true })];
     assert.deepEqual(collect(replay), []);
-    assert.deepEqual(collect(replay, new ReplyClassifier(() => 0)), []);
-    const classifier = new ReplyClassifier(() => 0);
+    assert.deepEqual(collect(replay, new ReplyClassifier()), []);
+    const classifier = new ReplyClassifier();
     assert.deepEqual(collect([...replay, ...turn('fresh', { phase })], classifier), [key('fresh')]);
   }
 });
@@ -73,7 +73,7 @@ test('unphased split output only promotes last nonempty message, distinct explic
 });
 
 test('only the classified final carries a bounded excerpt, never streamed progress or reasoning', () => {
-  const classifier = new ReplyClassifier(() => 0);
+  const classifier = new ReplyClassifier();
   const events = [
     observation('assistant.turn_start', { turnId: '0' }),
     ...message('progress', { phase: 'commentary', content: 'excluded-progress' }),
@@ -84,7 +84,7 @@ test('only the classified final carries a bounded excerpt, never streamed progre
   assert.deepEqual(events.flatMap(event => classifier.observe(event)), [{
     key: key('final'), summary: '已完成 更新通知内容，点击可进入会话。',
   }]);
-  const long = new ReplyClassifier(() => 0);
+  const long = new ReplyClassifier();
   const replies = turn('long', { content: '🙂'.repeat(20_000) }).flatMap(event => long.observe(event));
   assert.equal(Array.from(replies[0]!.summary).length, 120);
   assert.ok(replies[0]!.summary.endsWith('…'));
@@ -166,28 +166,82 @@ test('new start replaces earlier turn and late idle cannot finalize an open turn
   assert.deepEqual(collect([...turn('old').slice(0, -1), ...turn('new')]), [key('new')]);
 });
 
-test('stream evidence is bounded by time, number of events and per-turn messages', () => {
-  let now = 1_000;
-  const classifier = new ReplyClassifier(() => now);
-  classifier.observe(turn()[0]!);
-  now += 15 * 60_000 + 1;
-  assert.throws(() => classifier.observe(turn()[1]!), { code: 'CLASSIFIER_WINDOW_EXPIRED' });
-  const bounded = new ReplyClassifier(() => 0, 1);
+test('normal idle releases evidence; delayed and replayed terminal events cannot recreate a turn', () => {
+  const classifier = new ReplyClassifier();
+  const completed = turn('completed');
+  assert.deepEqual(collect(completed, classifier), [key('completed')]);
+  assert.deepEqual(classifier.reset('session-a'), []);
+  assert.deepEqual(collect([
+    ...message('late', { phase: 'final_answer' }),
+    ...turn().slice(-2), observation('abort'), ...completed,
+  ], classifier), []);
+  assert.deepEqual(collect(turn('next'), classifier), [key('next')]);
+});
+
+test('excluded or failed turns release previews immediately and need a fresh start to recover', () => {
+  for (const ending of [
+    observation('abort'), observation('session.error'), observation('assistant.error'),
+    observation('tool.execution_start'), observation('tool.execution_complete'),
+    observation('user_input.requested', {}, { ephemeral: true }),
+    observation('assistant.message', { toolRequests: [{}] }),
+    observation('assistant.message', { toolRequests: null }),
+    observation('assistant.message', { apiCallId: false }),
+    observation('assistant.message', { content: 'invalid identity' }),
+    observation('assistant.turn_end', { turnId: 'wrong' }),
+    observation('assistant.turn_end', { turnId: '0', success: false }),
+    observation('assistant.turn_end', { turnId: '0', error: {} }),
+    observation('assistant.idle', { aborted: true }, { ephemeral: true }),
+  ]) {
+    const classifier = new ReplyClassifier();
+    const events = turn('discarded');
+    collect(events.slice(0, -2), classifier);
+    assert.deepEqual(classifier.observe(ending), []);
+    assert.deepEqual(classifier.reset('session-a'), []);
+    assert.deepEqual(collect([...events, ...message('late'), ...events.slice(-2)], classifier), []);
+    assert.deepEqual(collect(turn('fresh'), classifier), [key('fresh')]);
+  }
+});
+
+test('active turn budget never evicts other sessions and is freed by terminal events or replacement', () => {
+  const classifier = new ReplyClassifier();
+  const sessions = Array.from({ length: 128 }, (_, index) => `session-${index}`);
+  for (const session of sessions) collect(turn('pending', {}, session).slice(0, -1), classifier);
+  assert.throws(() => collect(turn('rejected', {}, 'overflow'), classifier), { code: 'CLASSIFIER_ACTIVE_CAPACITY' });
+  assert.deepEqual(collect(turn('replacement', {}, sessions[0]!), classifier), [key('replacement', sessions[0])]);
+  assert.deepEqual(collect(turn('next', {}, 'overflow'), classifier), [key('next', 'overflow')]);
+  for (const session of sessions.slice(1)) {
+    assert.deepEqual(collect([observation('assistant.idle', {}, { ephemeral: true }, session)], classifier),
+      [key('pending', session)]);
+    assert.deepEqual(classifier.reset(session), []);
+  }
+});
+
+test('stream evidence is bounded by number of events and combined per-turn message identities', () => {
+  const bounded = new ReplyClassifier(1);
   bounded.observe(turn()[0]!);
   assert.throws(() => bounded.observe(message().at(-1)!), { code: 'CLASSIFIER_CAPACITY' });
-  const many = new ReplyClassifier(() => 0);
+  const many = new ReplyClassifier();
   many.observe(turn()[0]!);
   for (let index = 0; index < 128; index++) collect(message(`message-${index}`), many);
   assert.throws(() => collect(message('overflow'), many), { code: 'CLASSIFIER_TURN_CAPACITY' });
   assert.deepEqual(collect(turn().slice(-2), many), []);
-  const streams = new ReplyClassifier(() => 0);
+  assert.deepEqual(many.reset('session-a'), []);
+  const streams = new ReplyClassifier();
   streams.observe(turn()[0]!);
   for (let index = 0; index < 128; index++) streams.observe(message(`stream-${index}`)[0]!);
   assert.throws(() => streams.observe(message('overflow')[0]!), { code: 'CLASSIFIER_TURN_CAPACITY' });
+  assert.deepEqual(streams.reset('session-a'), []);
+  const mixed = new ReplyClassifier();
+  mixed.observe(turn()[0]!);
+  for (let index = 0; index < 64; index++) collect(message(`message-${index}`), mixed);
+  for (let index = 0; index < 64; index++) mixed.observe(message(`stream-${index}`)[0]!);
+  mixed.observe(message('stream-0').at(-1)!);
+  assert.throws(() => mixed.observe(message('overflow')[0]!), { code: 'CLASSIFIER_TURN_CAPACITY' });
+  assert.deepEqual(collect(turn('after-capacity'), mixed), [key('after-capacity')]);
 });
 
 test('delta volume does not grow the durable event budget and disposal fences subsequent observations', () => {
-  const classifier = new ReplyClassifier(() => 0, 4);
+  const classifier = new ReplyClassifier(4);
   const events = turn();
   collect(events.slice(0, 2), classifier);
   for (let index = 0; index < 1000; index++) classifier.observe(message()[1]!);
