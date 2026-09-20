@@ -20,6 +20,7 @@ export function message(nativeId = 'reply-a', data: Record<string, unknown> = {}
   return [
     observation('assistant.message_start', { messageId: nativeId }, { ephemeral: true }, sessionId),
     observation('assistant.message_delta', { messageId: nativeId, deltaContent: 'synthetic-stream-text' }, { ephemeral: true }, sessionId),
-    observation('assistant.message', { messageId: nativeId, turnId: '0', content: 'synthetic-secret-body', ...data }, {}, sessionId),
+    observation('assistant.message', { messageId: nativeId, turnId: '0', content: 'synthetic-secret-body',
+      phase: 'final_answer', ...data }, {}, sessionId),
   ];
 }

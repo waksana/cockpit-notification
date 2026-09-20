@@ -2,22 +2,24 @@
 
 ## Changes from 0.1.11
 
-- Keep only the latest ordinary unphased reply candidate per session, replacing
-  earlier candidates instead of accumulating completed-message records.
-  Discard excluded nonempty messages immediately without reviving an older fallback.
-- Preserve every distinct explicit final and its bounded preview until normal completion,
-  as requested. Explicit finals are not pushed before cancellation/tool checks settle.
-  Once an explicit final exists, ordinary fallback candidates need not be retained.
-- Keep bounded live-stream identity tracking for interleaved messages, with no token
-  text accumulation. Pending stream identities and distinct explicit finals each have
-  a 128-entry limit; sequential ordinary/commentary output does not consume that quota.
-- Preserve the untimed lifecycle, existing READ/unread identity and ask/push semantics.
-  The host error-history and already-lost-evidence limitations below remain unchanged.
+- Subscribe only to live `assistant.message` events. A non-ephemeral primary-agent
+  message with `phase: final_answer`, nonempty text, no tool requests and a valid
+  identity immediately enters unread and publishes its delta.
+- Remove the stateful classifier entirely: no ordinary/final candidate cache, stream
+  evidence, turn/idle waiting, provider-call digest or separate event-ID deduplication.
+  Multiple explicit finals enter independently; later cancellation does not retract them.
+- Do not infer finals from missing/unknown phases, idle or text content. Providers that
+  omit the explicit marker will not produce reply unread entries under this policy.
+- Use existing message-key ledger deduplication and READ-before-NEW tombstones.
+  Retain unread/identity capacity checks, bounded push previews and the default 3-second
+  push delay. Ask control projection, rewind/deletion and module-stop behavior remain.
+- Newness relies on the paired host live observer contract, not the phase field alone.
+  No history reads or backfill are introduced. Real identity/publication/push errors
+  remain reported; the host error-history limitations below are unchanged.
 
 ## Earlier 0.1.11 changes from 0.1.10
 
-The combined per-turn limit below describes 0.1.11; 0.1.12 replaces completed-message
-accumulation with the latest ordinary candidate and separate explicit-final records.
+The turn-evidence rules below describe 0.1.11; 0.1.12 removes that classifier entirely.
 
 - Remove the 15-minute reply-evidence deadline, as requested in #18. Long replies and
   waits no longer lose classification evidence merely because time passes.
@@ -74,7 +76,7 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.12 packages the latest-candidate simplification under a new immutable version.
+0.1.12 packages immediate explicit-final admission under a new immutable version.
 It does not replace an already installed 0.1.11 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
@@ -188,7 +190,7 @@ and are superseded by the 0.1.7 background above.
 - Requires the paired host; earlier Web module slots are not supported.
 - Node 24.20.0, pnpm 10.34.5; fixed native SDK 1.0.13 / runtime 1.0.83 / protocol 3.
 - Restart establishes a fresh unread generation and forgets old unread entries; no historical backfill.
-- Unphased final replies use the agreed structural compatibility rule, not a perfect provider-independent classifier.
+- Missing/unknown phases are not counted; explicit phase availability is provider-dependent.
 - Other clients and sleeping devices may retain stale counts/notifications until their next successful synchronization.
   Already-sent notifications can arrive late; push delivery and instant notification retraction are not guaranteed.
 - Real iPhone/Android installed-PWA push delivery has not been established by the synthetic fixtures.
