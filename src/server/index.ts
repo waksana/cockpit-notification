@@ -25,7 +25,7 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
   const clock = dependencies.clock ?? systemClock;
   const store = new SubscriptionStore(context.dataRoot, config);
   const ledger = new Ledger();
-  const classifier = new ReplyClassifier(() => clock.now());
+  const classifier = new ReplyClassifier();
   const asks = new Map<string, string>();
   const titles = new Map<string, string>();
   const removedSessions = new Set<string>();

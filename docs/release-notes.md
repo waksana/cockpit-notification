@@ -1,6 +1,24 @@
-# Cockpit Notification 0.1.10
+# Cockpit Notification 0.1.11
 
-## Changes from 0.1.9
+## Changes from 0.1.10
+
+- Remove the 15-minute reply-evidence deadline, as requested in #18. Long replies and
+  waits no longer lose classification evidence merely because time passes.
+- Bound evidence by quantity instead: at most 128 active turns, one per session, with
+  at most 128 combined stream identities and completed-message records per turn.
+  Retain only bounded notification excerpts, never accumulated tokens or full replies.
+- Release evidence on normal idle, abort/error, replacement and excluded/tool-bearing
+  turns. Late events cannot recreate a discarded turn without a fresh start.
+  Real capacity failures remain explicit; a per-turn failure permits later fresh turns.
+- Preserve conservative final classification, native history identities, established
+  READ/unread state, independent ask lifecycle, push delay and previews.
+- The paired host still retains previously reported errors and can show them again
+  on page reopening. This module cannot clear that history through the public SDK.
+  Host error-history UX is tracked separately in
+  [waksana/cockpit#67](https://github.com/waksana/cockpit/issues/67).
+  Evidence already discarded by older versions cannot be reconstructed or backfilled.
+
+## Earlier 0.1.10 changes from 0.1.9
 
 - Shorten read-removal fading to 1000ms, retaining ease-out, reduced-motion support,
   the warm color and the 3px radius cap. Unread state semantics remain unchanged.
@@ -30,7 +48,7 @@ The radius and duration below describe 0.1.8 and are superseded by the refinemen
 
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
-This document describes the 0.1.10 source target, not proof of publication or deployment.
+This document describes the 0.1.11 source target, not proof of publication or deployment.
 Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
 the historical Cockpit 0.2.3 Release does not provide these capabilities.
 The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
@@ -39,8 +57,8 @@ The module manifest and backend API remain v1.
 
 ## Installation identity
 
-0.1.10 packages a 1000ms ease-out fade under a new immutable version.
-It does not replace an already installed 0.1.9 digest. The earlier package
+0.1.11 packages the bounded, untimed reply classifier under a new immutable version.
+It does not replace an already installed 0.1.10 digest. The earlier package
 and device configuration are retained; the unread protocol and restart semantics are unchanged.
 
 ## Earlier 0.1.7 changes from 0.1.6

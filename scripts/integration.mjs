@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { mock } from 'node:test';
 
 const [hostDirectory, packageFile] = process.argv.slice(2);
 if (!hostDirectory || !packageFile || process.argv.length !== 4) throw new Error('Usage: integration.mjs HOST_DIRECTORY ARCHIVE');
@@ -13,7 +14,10 @@ for (const [name, value] of Object.entries({ HOME: root, COCKPIT_HOME: join(root
   previous[name] = process.env[name]; process.env[name] = value;
 }
 const native = new Set(), controls = new Set(), changed = [];
+const backendReports = [];
 let app, host, frontend;
+let now = Date.now();
+const clock = mock.method(Date, 'now', () => now);
 const restoreBrowser = [];
 async function writable(path) {
   const info = await lstat(path);
@@ -30,7 +34,7 @@ try {
   host = new ModuleHost({ hostRoot: process.env.COCKPIT_HOME, observer: {
     onNativeEvent(handler) { native.add(handler); return () => native.delete(handler); },
     onEvent(handler) { controls.add(handler); return () => controls.delete(handler); },
-  }, onEvent: (moduleId, payload) => {
+  }, report: (id, error) => backendReports.push({ id, error }), onEvent: (moduleId, payload) => {
     changed.push({ moduleId, payload });
     frontend?.receiveEvent(moduleId, payload);
   } });
@@ -63,7 +67,7 @@ try {
     return new Response(response.body, { status: response.statusCode,
       headers: { 'content-type': String(response.headers['content-type']) } });
   };
-  frontend = new ModuleRuntime({
+  const frontendOptions = {
     pageUrl: 'https://fixture.invalid/', fetch: fetchModule,
     style: () => () => {},
     load: async url => {
@@ -72,7 +76,8 @@ try {
       return import(`data:text/javascript;base64,${Buffer.from(await response.text()).toString('base64')}`);
     },
     report: error => frontendReports.push(error),
-  });
+  };
+  frontend = new ModuleRuntime(frontendOptions);
   await frontend.start();
   assert.deepEqual(frontendReports, []);
   assert.equal(frontend.getSnapshot().length, 1);
@@ -121,13 +126,18 @@ try {
   for (const listener of controls) await listener({ type: 'session/patch', sessionId, ask: null });
   assert.equal((await app.inject(`${base}/state`)).json().total, 0);
   const messageId = randomUUID();
+  const { foldEvent, newFoldState } = await import(pathToFileURL(join(hostSource, 'packages/protocol/src/chat.ts')).href);
+  const projection = newFoldState();
   const emit = async (type, data, ephemeral = false) => {
-    for (const listener of native) await listener({ sessionId, cwd: null, event: {
+    const event = {
       id: randomUUID(), type, data, ...(ephemeral ? { ephemeral: true } : {}),
-    } });
+    };
+    foldEvent(projection, event);
+    for (const listener of native) await listener({ sessionId, cwd: null, event });
   };
   await emit('assistant.turn_start', { turnId: '3' });
   await emit('assistant.message_start', { messageId }, true);
+  now += 15 * 60_000 + 1;
   await emit('assistant.message_delta', { messageId, deltaContent: 'Synthetic final' }, true);
   await emit('assistant.message', { messageId, turnId: '3', phase: 'final_answer',
     content: 'Synthetic final', toolRequests: [], apiCallId: 'A'.repeat(488) });
@@ -135,13 +145,59 @@ try {
   await emit('assistant.idle', {}, true);
   assert.equal((await app.inject(`${base}/state`)).json().total, 1);
   assert.deepEqual(changed.at(-1).payload.added, [{ sessionId, kind: 'reply', nativeId: messageId, createdRevision: 3 }]);
+  assert.equal(projection.messages.find(message => message.id === messageId).content, 'Synthetic final');
+  assert.ok(projection.completed.has(messageId), 'the unread key still names the completed native projection');
+  now += 24 * 60 * 60_000;
+  await emit('assistant.turn_end', { turnId: '3' });
+  await emit('assistant.idle', {}, true);
+  await emit('abort', {});
+  const beforeReopen = (await app.inject(`${base}/state`)).json();
+  const reopen = async () => {
+    frontend.stop();
+    frontend = new ModuleRuntime(frontendOptions);
+    await frontend.start();
+    assert.equal(frontend.getSnapshot().length, 1);
+  };
+  for (let index = 0; index < 2; index++) {
+    await reopen();
+    assert.deepEqual((await app.inject('/_modules')).json().errors, []);
+    assert.deepEqual((await app.inject(`${base}/state`)).json(), beforeReopen);
+    assert.deepEqual(frontendReports, []);
+  }
+  assert.deepEqual(backendReports, []);
+
+  // A genuine capacity error is still reported. The pinned host retains it even
+  // after subsequent successful turns; reopening is not a new backend failure.
+  await emit('assistant.turn_start', { turnId: 'overflow' });
+  for (let index = 0; index < 129; index++) await emit('assistant.message_start', { messageId: `overflow-${index}` }, true);
+  assert.equal(backendReports.length, 1);
+  assert.equal(backendReports[0].error.code, 'CLASSIFIER_TURN_CAPACITY');
+  await emit('assistant.turn_end', { turnId: 'overflow' });
+  await emit('assistant.idle', {}, true);
+  assert.deepEqual((await app.inject(`${base}/state`)).json(), beforeReopen);
+  await emit('assistant.turn_start', { turnId: 'recovered' });
+  await emit('assistant.message_start', { messageId: 'recovered' }, true);
+  await emit('assistant.message', { messageId: 'recovered', turnId: 'recovered', content: 'Recovered reply' });
+  await emit('assistant.turn_end', { turnId: 'recovered' });
+  await emit('assistant.idle', {}, true);
+  const recovered = (await app.inject(`${base}/state`)).json();
+  assert.equal(recovered.total, 2);
+  for (let index = 0; index < 2; index++) {
+    await reopen();
+    assert.equal(frontendReports.length, index + 1);
+    assert.match(String(frontendReports.at(-1)), /cockpit-notification: Live reply turn exceeded/);
+    assert.deepEqual((await app.inject(`${base}/state`)).json(), recovered);
+    assert.equal((await app.inject('/_modules')).json().errors[0].code, 'CLASSIFIER_TURN_CAPACITY');
+    assert.equal(backendReports.length, 1);
+  }
   frontend.stop();
   assert.deepEqual(frontend.menuItems({ menu: 'global' }, menuSource, () => true), []);
-  assert.deepEqual(frontendReports, []);
   host.close();
   assert.equal(native.size, 0); assert.equal(controls.size, 0);
   console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
     controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
+    longTurnWithoutExpiry: true, nativeProjectionIdentity: true, pageReopenWithoutNewFailure: true,
+    realCapacityReportRetainedByPinnedHost: true,
     narrowWorker: true, packagedFrontendMenuRegistry: true, noNativeRuntimeOrPushService: true }));
 } finally {
   frontend?.stop();
@@ -153,4 +209,5 @@ try {
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
   for (const restore of restoreBrowser.reverse()) restore();
+  clock.mock.restore();
 }
