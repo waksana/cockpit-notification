@@ -91,12 +91,20 @@ export const activate: ActivateFrontend = context => {
       } else if (props.bodyRef) props.bodyRef.current = node;
     }, [props.bodyRef]);
     React.useEffect(() => {
-      if (!eligible || !element || !generation || !store.canPresent()) return;
-      return observeRead(element,
-        () => !stopped && store.canPresent() && context.state.host.getSnapshot().sessionId === message.sessionId &&
-          store.getSnapshot().snapshot?.generation === generation,
-        () => store.present(key, generation), 600);
-    }, [id, eligible, element, generation, state.status]);
+      if (!eligible || !element || !generation) return;
+      const allowed = () => !stopped && store.canPresent() &&
+        context.state.host.getSnapshot().sessionId === message.sessionId &&
+        store.getSnapshot().snapshot?.generation === generation;
+      let stop: (() => void) | undefined;
+      const update = () => {
+        if (!allowed()) { stop?.(); stop = undefined; }
+        else stop ??= observeRead(element, allowed, () => store.present(key, generation), 600);
+      };
+      // Store activity publishes synchronously, including session switches between frames.
+      const unsubscribe = store.subscribe(update);
+      update();
+      return () => { unsubscribe(); stop?.(); };
+    }, [id, eligible, element, generation]);
     const className = root && message.kind === 'message'
       ? [props.className, 'cn-message-highlight', known ? 'cn-unread' : ''].filter(Boolean).join(' ')
       : props.className;
