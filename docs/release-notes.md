@@ -1,3 +1,12 @@
+# Cockpit Notification 0.1.14 (source preparation)
+
+Prepare a fresh immutable package identity for the merged shared-UI changes;
+do not replace installed 0.1.13 bytes under the same version. Manifest and package
+metadata agree, and contributor guidance documents version/digest ownership.
+The exact host pin remains `9fd5204bda99a8bd65b2c5ef152cc47ce87837d5` with
+`uiSurfaceVersion: 1`. No unread, push, subscription or menu behavior changes.
+No tag, Release, production installation or restart is performed by this preparation.
+
 # Cockpit Notification 0.1.13
 
 ## Unreleased shared UI migration
