@@ -63,6 +63,7 @@ export function fixture(t: TestContext, sender?: Sender, config: Record<string, 
   const publicationStates: Snapshot[] = [];
   let backend: ModuleBackend;
   const context: ModuleBackendContext = {
+    serviceReadyVersion: 1, host: { call() { throw new Error('Notification does not call host intents'); } },
     apiVersion: 1, moduleId: 'cockpit-notification', dataRoot, apiBase: '/module-api/cockpit-notification',
     config, signal: controller.signal, report(error) { errors.push(error); },
     invalidate() {

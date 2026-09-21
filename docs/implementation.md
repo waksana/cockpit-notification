@@ -1,7 +1,8 @@
 # 首版实现与运行边界
 
 本页记录 0.1.13 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
-配套 Cockpit 0.2.4 的通用 module/event 和 menus v1；历史 0.2.3 Release 不包含这些能力。
+要求通用 module/event、menus v1 与独立 shared-surfaces v1；精确宿主支持见[安装指南](installation.md)，
+历史发行版的 UI v1 本身不证明新增 badge 样式存在。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
 
 ## 已落定的实现选择

@@ -12,9 +12,9 @@ const labels: Record<UnreadState['status'], string> = {
 };
 
 export const activate: ActivateFrontend = context => {
-  if (context.apiVersion !== 2 || context.uiVersion !== 1 || context.menuVersion !== 1 || !context.state?.host ||
+  if (context.apiVersion !== 2 || context.uiVersion !== 1 || context.uiSurfaceVersion !== 1 || context.menuVersion !== 1 || !context.state?.host ||
       typeof context.state.register !== 'function' || typeof context.onEvent !== 'function') {
-    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1 / menus v1、state 和 onEvent');
+    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1 / uiSurfaceVersion v1 / menus v1、state 和 onEvent');
   }
   const React = context.react;
   const deviceState = context.state.register({
@@ -117,7 +117,7 @@ export const activate: ActivateFrontend = context => {
     const count = state.snapshot?.sessions.find(session => session.sessionId === sessionId)?.count;
     if (!count) return null;
     const stale = state.status !== 'ready' && state.status !== 'refreshing';
-    return <span className={`cn-session-badge${stale ? ' cn-stale' : ''}`}
+    return <span className={`ck-badge cn-session-badge${stale ? ' cn-stale' : ''}`}
       aria-label={`${count} 条未读${stale ? '，尚未同步' : ''}`} title={stale ? labels[state.status] : undefined}>{count}</span>;
   }
 

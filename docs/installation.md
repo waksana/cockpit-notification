@@ -1,13 +1,17 @@
 # 构建、配套宿主与安装
 
-**当前源码 0.1.13 配套 Cockpit 0.2.4，只处理明确 final 并直接入账，不设候选缓存。** 增量同步、会话徽标与未读底色保持不变，本次无需宿主改动。
+**当前源码 0.1.13 要求新增 shared-surfaces v1，只处理明确 final 并直接入账，不设候选缓存。**
+精确配套宿主源码为 `9fd5204bda99a8bd65b2c5ef152cc47ce87837d5`，导出 SDK 版本 0.2.6；
+这不是历史同版本 Release 已支持新能力的声明。
+会话计数使用 `ck-badge`，保留业务颜色、等宽数字、非交互语义与 stale 标签。
+激活在注册任何贡献前额外要求 `context.uiSurfaceVersion === 1`；缺少或不支持时明确拒绝。
+增量同步、菜单、已读判定与未读底色策略保持不变。
 需要宿主提供的通用模块事件及菜单注册，历史 Cockpit 0.2.3 Release 不具备这些能力。
 源码配套宿主要求 Web API v2 的 state 服务、组件 middleware 及 `context.menuVersion === 1`；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
 准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
 不能把旧的 0.2.x 包视为自动兼容。
-SDK 类型基线仍来自 pin 指定的干净 0.2.3 开发提交，不是历史 0.2.3 Release；
-Cockpit 0.2.4 包含该接口，版本发行未改变菜单类型或模块协议。
+SDK 类型基线来自 pin 指定的干净源码提交；旧 UI v1 本身不证明新增 surface/badge 样式存在。
 前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 

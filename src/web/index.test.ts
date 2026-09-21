@@ -142,7 +142,7 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
   };
   const controller = new AbortController();
   const context = {
-    apiVersion: 2, uiVersion: 1, menuVersion: 1, moduleId: 'cockpit-notification', react: React,
+    apiVersion: 2, uiVersion: 1, uiSurfaceVersion: 1, menuVersion: 1, moduleId: 'cockpit-notification', react: React,
     apiBase: `https://host.test/deployment/_modules/cockpit-notification/${'a'.repeat(64)}/api`,
     config: { readDelayMs: 600, pushDelayMs: 3000, maxBatch: 128 },
     signal: controller.signal, report: (error: unknown) => errors.push(error),
@@ -722,6 +722,7 @@ test('sidebar badge remains noninteractive while navigation contains only the no
   const badgeNode = (sidebar.props.children as Element[])[1]!;
   const badge = f.render(badgeNode.type, badgeNode.props)!;
   assert.equal(badge.type, 'span');
+  assert.equal(badge.props.className, 'ck-badge cn-session-badge');
   assert.equal(badge.props.onClick, undefined);
   assert.equal(badge.props.tabIndex, undefined);
   assert.deepEqual(badge.props.children, [1]);
@@ -783,24 +784,18 @@ test('notification menu only toggles this device and disables actions during wor
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
 });
 
-test('session badge uses equal minimum dimensions and centered content without flex shrinking', async () => {
+test('session badge delegates geometry to public CSS and retains only count semantics', async () => {
   const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
   const badge = css.match(/\.cn-session-badge\s*\{([^}]+)\}/)![1]!;
-  assert.match(badge, /display:\s*inline-flex;/);
-  assert.match(badge, /align-items:\s*center;/);
-  assert.match(badge, /justify-content:\s*center;/);
-  assert.match(badge, /flex:\s*none;/);
-  assert.match(badge, /box-sizing:\s*border-box;/);
-  assert.match(badge, /min-width:\s*18px;/);
-  assert.match(badge, /height:\s*18px;/);
-  assert.match(badge, /padding:\s*0 4px;/);
-  assert.match(badge, /border-radius:\s*999px;/);
-  assert.match(badge, /line-height:\s*1;/);
+  assert.match(badge, /background:\s*var\(--ck-color-danger\);/);
+  assert.match(badge, /color:\s*var\(--ck-color-on-accent\);/);
+  assert.match(badge, /font-variant-numeric:\s*tabular-nums;/);
+  assert.doesNotMatch(badge, /display:|align-items:|justify-content:|flex:|box-sizing:|width:|height:|padding:|border-radius:|font-size:|line-height:/);
 });
 
 test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are explicit', async t => {
   const f = fixture(t);
-  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { menuVersion: undefined }, { menuVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
+  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { uiSurfaceVersion: undefined }, { uiSurfaceVersion: 0 }, { uiSurfaceVersion: 2 }, { menuVersion: undefined }, { menuVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
     await assert.rejects(async () => activate({ ...f.context, ...extra } as ModuleFrontendContext), /frontend v2/);
   }
   assert.equal(f.calls.length, 0);
