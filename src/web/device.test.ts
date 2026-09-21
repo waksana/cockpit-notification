@@ -83,7 +83,7 @@ function fixture(t: { after(fn: () => void): void }) {
   } });
   const controller = new AbortController();
   const context = {
-    apiVersion: 2, uiVersion: 1, moduleId: 'cockpit-notification',
+    apiVersion: 2, uiVersion: 1, uiSurfaceVersion: 1, moduleId: 'cockpit-notification',
     apiBase: `https://host.test/deployment/_modules/cockpit-notification/${'a'.repeat(64)}/api`,
     config: { vapidPublicKey }, worker: { entry, scope }, signal: controller.signal,
     report: (error: unknown) => errors.push(error),

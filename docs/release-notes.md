@@ -1,5 +1,12 @@
 # Cockpit Notification 0.1.13
 
+## Unreleased shared UI migration
+
+Current source uses public `ck-badge` and requires `context.uiSurfaceVersion === 1`
+in addition to UI v1 before registering contributions. Count semantics, stale labels,
+menus and unread policy are unchanged. The exact source pairing is documented in
+[installation](installation.md); no historical Release gains this capability retroactively.
+
 ## Changes from 0.1.12
 
 - Subscribe only to live `assistant.message` events. A non-ephemeral primary-agent
@@ -81,10 +88,9 @@ The radius and duration below describe 0.1.8 and are superseded by the refinemen
 Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
 This document describes the 0.1.13 source target, not proof of publication or deployment.
-Pairs with Cockpit 0.2.4 for generic module SSE payloads and menu registration v1;
-the historical Cockpit 0.2.3 Release does not provide these capabilities.
-The SDK type baseline remains the exact clean development commit pinned in `tooling/host-sdk.json`,
-whose APIs are included unchanged in Cockpit 0.2.4.
+Requires generic module SSE payloads, menu registration v1 and shared-surfaces v1.
+The exact clean source pairing is pinned in `tooling/host-sdk.json`; older UI-v1
+hosts do not automatically provide the new capability or badge styles.
 The module manifest and backend API remain v1.
 
 ## Installation identity
