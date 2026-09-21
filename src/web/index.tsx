@@ -117,7 +117,7 @@ export const activate: ActivateFrontend = context => {
     const count = state.snapshot?.sessions.find(session => session.sessionId === sessionId)?.count;
     if (!count) return null;
     const stale = state.status !== 'ready' && state.status !== 'refreshing';
-    return <span className={`cn-session-badge${stale ? ' cn-stale' : ''}`}
+    return <span className={`ck-badge cn-session-badge${stale ? ' cn-stale' : ''}`}
       aria-label={`${count} 条未读${stale ? '，尚未同步' : ''}`} title={stale ? labels[state.status] : undefined}>{count}</span>;
   }
 
