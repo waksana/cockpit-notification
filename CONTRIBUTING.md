@@ -1,6 +1,7 @@
 # 参与开发
 
-当前源码版本为 0.1.13，配套 Cockpit 0.2.4；发布状态以对应 GitHub Release 为准。先阅读[产品要求](docs/requirements.md)、
+当前源码版本为 0.1.14，要求 shared-surfaces v1；精确宿主配套见[安装指南](docs/installation.md)，
+发布状态以对应 GitHub Release 为准。先阅读[产品要求](docs/requirements.md)、
 [状态机](docs/state-machines.md)和[实现边界](docs/implementation.md)。
 未完成的平台覆盖不能因为类型或合成测试通过就宣传为已验证。
 
@@ -32,6 +33,17 @@
 不要提交密钥、设备标识、push endpoint、通知正文、用户截图或完整聊天记录。
 
 ## 许可与发布
+
+### 安装版本不可变
+
+不要求每个提交都升级版本。在为安装或部署打包之前，须与已经交付的版本比较：
+包内容字节改变就必须使用新的 semver；兼容修复通常升级 patch。同一模块 ID 与版本
+只能重现相同字节/摘要，source SHA 和 digest 是来源证据，不能替代版本或允许覆盖旧身份。
+
+同步 `package.json`、`cockpit.module.json`、嵌入版本与适用的 lock 元数据，
+更新当前源码配套说明和发行说明，保留历史发行事实。固定 SDK pin 不因版本准备而随意改动。
+从最终干净提交重新构建并核对精确 CI 包；不能删除已安装目录或强制绕过安装器来复用版本。
+版本准备和合并不自动授权 tag、Release、安装或重启。
 
 一方源码按 `GPL-3.0-only` 标注，保留 [LICENSE](LICENSE)。
 引入第三方包或资源时核对固定版本并保留许可，不能因为宿主已有某依赖就假定模块包无需声明。

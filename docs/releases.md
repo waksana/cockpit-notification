@@ -19,7 +19,7 @@
 CI artifact 只保留有限时间，Release 资产独立保留。
 
 已发行 0.1.0 配套当时的 Cockpit 0.2.3；当前源码因公共 badge 迁移而要求独立 shared-surfaces v1，
-配套条件见[安装指南](installation.md)。0.1.13 的实际发布状态须另行核对；SDK 类型基线的完整 SHA 以
+配套条件见[安装指南](installation.md)。0.1.14 的实际发布状态须另行核对；SDK 类型基线的完整 SHA 以
 `tooling/host-sdk.json` 为准，不把开发提交的新能力追记为旧 Release 的事实。包和 SDK 类型来自固定源，
 不打入私有配置、订阅、未读数据或额外 React。许可随包内 dist/licenses 交付。
 发布不安装、不申请设备权限、不改变正在运行的服务；安装和重启需要另外授权。
