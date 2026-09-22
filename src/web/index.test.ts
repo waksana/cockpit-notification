@@ -784,13 +784,19 @@ test('notification menu only toggles this device and disables actions during wor
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
 });
 
-test('session badge delegates geometry to public CSS and retains only count semantics', async () => {
+test('unread count retains circular, nonshrinking geometry over the public text badge', async () => {
   const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
   const badge = css.match(/\.cn-session-badge\s*\{([^}]+)\}/)![1]!;
   assert.match(badge, /background:\s*var\(--ck-color-danger\);/);
   assert.match(badge, /color:\s*var\(--ck-color-on-accent\);/);
   assert.match(badge, /font-variant-numeric:\s*tabular-nums;/);
-  assert.doesNotMatch(badge, /display:|align-items:|justify-content:|flex:|box-sizing:|width:|height:|padding:|border-radius:|font-size:|line-height:/);
+  for (const declaration of [
+    'box-sizing: border-box', 'flex: none', 'justify-content: center',
+    'min-inline-size: 1.5em', 'max-inline-size: none', 'block-size: 1.5em',
+    'padding-inline: calc(1em / 3)', 'border-radius: 999px', 'line-height: 1',
+    'white-space: nowrap', 'overflow-wrap: normal',
+  ]) assert.ok(badge.includes(`${declaration};`), `count geometry requires ${declaration}`);
+  assert.doesNotMatch(badge, /font-size:|overflow:\s*(?:hidden|clip)|clip-path:|transform:/);
 });
 
 test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are explicit', async t => {
