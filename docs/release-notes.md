@@ -1,3 +1,17 @@
+# Cockpit Notification 0.1.15 (source preparation)
+
+Restore unread count geometry lost when the shared-UI migration substituted a
+generic text badge for the count indicator. Single digits are circular; multiple
+digits expand into a pill without wrapping or flex shrinking. Dimensions follow
+the inherited metadata font size (18px at the default 12px), and counts remain
+noninteractive. Shared color/typography and the exact host SDK pin are unchanged.
+
+Replace the regression-producing "no geometry overrides" assertion with explicit
+count geometry invariants. A lightweight synthetic browser preview combines the
+actual built host CSS and current module CSS and checks shape, text containment
+and ancestor clipping at normal/double text size. No unread, ACK, push or menu
+behavior changes. This new immutable version does not imply deployment or Release.
+
 # Cockpit Notification 0.1.14 (source preparation)
 
 Prepare a fresh immutable package identity for the merged shared-UI changes;

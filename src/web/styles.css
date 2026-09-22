@@ -23,6 +23,18 @@
   .cn-message-highlight { transition: none; }
 }
 .cn-session-badge {
+  /* A count is circular for one digit, not a generic wrapping text label. */
+  box-sizing: border-box;
+  flex: none;
+  justify-content: center;
+  min-inline-size: 1.5em;
+  max-inline-size: none;
+  block-size: 1.5em;
+  padding-inline: calc(1em / 3);
+  border-radius: 999px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow-wrap: normal;
   background: var(--ck-color-danger);
   color: var(--ck-color-on-accent);
   font-variant-numeric: tabular-nums;
