@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { chmodSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { directory, subscription } from './test-fixtures.ts';
-import { settings, SubscriptionStore, subscriptionId, validateEndpoint, validateSubscription } from './storage.ts';
+import { settings, SubscriptionStore, subscriptionId, validateEndpoint, validateSubscription, WSL2_GUIDE_URL } from './storage.ts';
 import { publicAddress } from './push.ts';
 
 test('VAPID keys and subscriptions persist privately and registration/update/delete are idempotent', t => {
@@ -23,6 +23,22 @@ test('VAPID keys and subscriptions persist privately and registration/update/del
   restarted.remove(id);
   restarted.remove(id);
   assert.equal(new SubscriptionStore(root, settings({})).active(0).length, 0);
+});
+
+test('non-Linux platforms report the Linux/WSL2 requirement before any privacy check', t => {
+  const root = directory(t);
+  const target = join(root, 'data');
+  for (const platform of ['win32', 'darwin'] as const) {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...original, value: platform });
+    try {
+      assert.throws(() => new SubscriptionStore(target, settings({})), (error: unknown) =>
+        error instanceof Error && 'code' in error && error.code === 'UNSUPPORTED_PLATFORM' &&
+        error.message === `Cockpit Notification requires Linux (current platform: ${platform}). ` +
+          `On Windows, run Cockpit inside WSL2: ${WSL2_GUIDE_URL}`);
+    } finally { Object.defineProperty(process, 'platform', original); }
+  }
+  assert.deepEqual(readdirSync(root), []);
 });
 
 test('invalid existing secrets are never regenerated or exposed in errors', t => {

@@ -11,6 +11,11 @@ import { BackendError } from './errors.ts';
 const MAX_DEVICES = 64;
 const MAX_STORAGE_BYTES = 256 * 1024;
 const DEFAULT_SUBJECT = 'https://github.com/waksana/cockpit-notification';
+export const WSL2_GUIDE_URL = 'https://github.com/waksana/cockpit/blob/main/docs/install.md#windows-wsl2';
+
+export function unsupportedPlatformMessage(platform: string): string {
+  return `Cockpit Notification requires Linux (current platform: ${platform}). On Windows, run Cockpit inside WSL2: ${WSL2_GUIDE_URL}`;
+}
 export interface Settings {
   pushDelayMs: number;
   vapidSubject?: string;
@@ -130,6 +135,10 @@ export class SubscriptionStore {
 
   constructor(dataRoot: string, config: Settings) {
     this.#settings = config;
+    // The POSIX ownership/mode and O_NOFOLLOW guarantees below only hold on Linux.
+    if (process.platform !== 'linux' || typeof process.getuid !== 'function') {
+      throw new BackendError('UNSUPPORTED_PLATFORM', unsupportedPlatformMessage(process.platform), 503);
+    }
     try {
       if (!isAbsolute(dataRoot) || resolve(dataRoot) !== dataRoot) {
         throw new BackendError('UNSAFE_STORAGE', 'Notification storage requires a canonical absolute directory', 503);
