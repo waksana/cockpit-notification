@@ -62,6 +62,10 @@ CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建�
 
 ## 安装
 
+仅支持 Linux：私有存储依赖 POSIX 属主/权限与 `O_NOFOLLOW`。其他平台启动时明确报
+`UNSUPPORTED_PLATFORM`，而不是误导性的隐私错误；Windows 请按宿主
+[WSL2 指南](https://github.com/waksana/cockpit/blob/main/docs/install.md#windows-wsl2) 在 WSL2 中运行。
+
 使用 pin 对应的兼容宿主包，通过它的原生模块安装命令启用可信本地包；
 宿主与模块可以先安装，下次启动时必须一起使用配套版本：
 
