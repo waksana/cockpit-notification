@@ -1,4 +1,4 @@
-# Unreleased
+# Cockpit Notification 0.1.17
 
 - One reply rule for every model: a live, non-ephemeral primary-agent
   `assistant.message` with nonempty text and no tool requests enters unread and
@@ -6,8 +6,7 @@
   `phase: final_answer` counted, so models that omit `phase` (for example Claude)
   produced neither reply unread entries nor notifications (#35).
 - Sub-agent, ephemeral and tool-bearing messages remain excluded. Identity,
-  capacity, READ, push and ask behavior are unchanged. No version, tag or
-  deployment change.
+  capacity, READ, push and ask behavior are unchanged.
 
 # Cockpit Notification 0.1.16 (source preparation)
 
