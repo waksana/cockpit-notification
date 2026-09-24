@@ -1,3 +1,14 @@
+# Cockpit Notification 0.1.16 (source preparation)
+
+Reserve a fresh immutable package identity for the 2026-09-24 afternoon joint
+deployment with paired Cockpit host 0.4.6. Since 0.1.15, non-Linux startup
+reports `UNSUPPORTED_PLATFORM` before POSIX privacy checks and points Windows
+users to the host WSL2 guide; Linux storage privacy behavior is unchanged.
+Release documentation now points to Cockpit's release-after-joint-deployment
+policy. No unread, push, menu, badge geometry or SDK pin changes. This source
+preparation does not imply the paired host is released, a tag or Release exists,
+or that installation, deployment or restart has occurred.
+
 # Cockpit Notification 0.1.15 (source preparation)
 
 Restore unread count geometry lost when the shared-UI migration substituted a

@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.15 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
+本页记录 0.1.16 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
 要求通用 module/event、menus v1 与独立 shared-surfaces v1；精确宿主支持见[安装指南](installation.md)，
 历史发行版的 UI v1 本身不证明新增 badge 样式存在。
 源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
