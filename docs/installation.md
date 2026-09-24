@@ -70,8 +70,7 @@ CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建�
 宿主与模块可以先安装，下次启动时必须一起使用配套版本：
 
 ```sh
-node --import ./apps/server/node_modules/tsx/dist/loader.mjs \
-  apps/server/src/module-cli.ts install \
+node --enable-source-maps apps/server/dist/module-cli.js install \
   /absolute/path/cockpit-notification-0.1.17.tgz --trust-local-code --enable
 ```
 
