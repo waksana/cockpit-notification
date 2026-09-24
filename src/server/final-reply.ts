@@ -6,9 +6,9 @@ import { notificationExcerpt, type NotificationPreview } from './preview.ts';
 export function finalReply({ sessionId, event }: NativeObservation): NotificationPreview | undefined {
   if (!record(event) || event.type !== 'assistant.message' || event.ephemeral === true || !record(event.data)) return;
   const data = event.data;
-  if (data.phase !== 'final_answer' ||
-      [event.agentId, event.parentToolCallId, data.agentId, data.parentToolCallId]
-        .some(value => value !== undefined && value !== null && value !== '')) return;
+  // One rule for every provider: a primary message without tool requests hands control back, so `phase` is ignored.
+  if ([event.agentId, event.parentToolCallId, data.agentId, data.parentToolCallId]
+    .some(value => value !== undefined && value !== null && value !== '')) return;
   if (data.toolRequests !== undefined && (!Array.isArray(data.toolRequests) || data.toolRequests.length > 0)) return;
   if (typeof data.content !== 'string' || !data.content.trim()) return;
   if (!identity(sessionId) || !identity(data.messageId)) {

@@ -4,10 +4,9 @@ import { finalReply } from './final-reply.ts';
 import { key, observation } from './native-fixtures.ts';
 
 const reply = (data: Record<string, unknown> = {}) =>
-  observation('assistant.message', { messageId: 'reply', content: '## Ready\n**Final reply**',
-    phase: 'final_answer', ...data });
+  observation('assistant.message', { messageId: 'reply', content: '## Ready\n**Final reply**', ...data });
 
-test('one explicit final event is sufficient without start, stream, end or idle evidence', () => {
+test('one tool-free primary message is sufficient without start, stream, end or idle evidence', () => {
   assert.deepEqual(finalReply(reply()), { key: key('reply'), summary: 'Ready Final reply' });
   assert.deepEqual(finalReply(reply({ messageId: 'second' }))?.key, key('second'));
   for (const apiCallId of ['x'.repeat(488), '供應商🙂'.repeat(8000), '', null]) {
@@ -15,15 +14,16 @@ test('one explicit final event is sufficient without start, stream, end or idle 
   }
 });
 
-test('missing, commentary and unknown phases never become final, even on complete messages', () => {
-  for (const phase of [undefined, null, '', 'commentary', 'final', 'future_final']) {
-    assert.equal(finalReply(reply({ phase })), undefined);
+test('phase is ignored: providers with or without phase use the same tool-request rule', () => {
+  for (const phase of [undefined, null, '', 'commentary', 'final_answer', 'future_final']) {
+    assert.deepEqual(finalReply(reply({ phase }))?.key, key('reply'));
+    assert.deepEqual(finalReply(reply({ phase, toolRequests: [] }))?.key, key('reply'));
+    assert.equal(finalReply(reply({ phase, toolRequests: [{ name: 'view' }] })), undefined);
   }
   for (const content of ['', ' \n ', undefined]) assert.equal(finalReply(reply({ content })), undefined);
   for (const toolRequests of [[{ name: 'view' }], null, {}]) {
     assert.equal(finalReply(reply({ toolRequests })), undefined);
   }
-  assert.ok(finalReply(reply({ toolRequests: [] })));
 });
 
 test('only non-ephemeral primary assistant messages qualify', () => {

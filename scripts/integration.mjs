@@ -152,15 +152,17 @@ try {
   for (let index = 0; index < 1000; index++) {
     const messageId = `ordinary-${index}`;
     await emit('assistant.message_start', { messageId }, true);
-    await emit('assistant.message', { messageId, content: `Ordinary ${index}`, turnId: 'ordinary' });
+    await emit('assistant.message', { messageId, content: `Ordinary ${index}`, turnId: 'ordinary',
+      toolRequests: [{ toolCallId: `tool-${index}`, name: 'view', arguments: {} }] });
   }
   await emit('assistant.turn_end', { turnId: 'ordinary' });
   await emit('assistant.idle', {}, true);
   assert.equal((await app.inject(`${base}/state`)).json().total, 1);
   await emit('assistant.turn_start', { turnId: 'explicit' });
-  for (const messageId of ['first-final', 'second-final']) {
+  // Providers without phase (for example Claude) and with phase use the same tool-free rule.
+  for (const [messageId, phase] of [['first-final', undefined], ['second-final', 'final_answer']]) {
     await emit('assistant.message_start', { messageId }, true);
-    await emit('assistant.message', { messageId, content: messageId, turnId: 'explicit', phase: 'final_answer' });
+    await emit('assistant.message', { messageId, content: messageId, turnId: 'explicit', ...(phase ? { phase } : {}) });
   }
   assert.equal((await app.inject(`${base}/state`)).json().total, 3);
   await emit('assistant.turn_end', { turnId: 'explicit' });
@@ -220,7 +222,7 @@ try {
   console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
     controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
     longTurnWithoutExpiry: true, nativeProjectionIdentity: true, pageReopenWithoutNewFailure: true,
-    immediateExplicitFinalsOnly: true, separateExplicitFinals: true,
+    immediateToolFreeRepliesOnly: true, separateRepliesWithOrWithoutPhase: true,
     realErrorRetainedByPinnedHost: true,
     narrowWorker: true, packagedFrontendMenuRegistry: true, noNativeRuntimeOrPushService: true }));
 } finally {

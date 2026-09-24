@@ -71,7 +71,7 @@ test('state/read HTTP contracts publish contiguous atomic deltas and return comp
 test('backend subscribes only to live assistant messages; restart starts empty without querying history', async t => {
   const f = fixture(t);
   assert.deepEqual(f.backend.events!.types, ['assistant.message']);
-  await f.emit(turn('before-restart', { phase: 'final_answer' }));
+  await f.emit(turn('before-restart'));
   f.backend.dispose?.();
   const restarted = activate({ ...f.context, signal: new AbortController().signal, publish() {} },
     { clock: f.clock, sender: async () => 'ACCEPTED' });
@@ -89,7 +89,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
       const sent: NotificationPayload[] = [];
       const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
       await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
-      const events = turn('long', { phase: 'final_answer', content: '**Long reply** completed' });
+      const events = turn('long', { content: '**Long reply** completed' });
       await f.emit(events.slice(0, split));
       const before = await f.state();
       assert.equal(before.total, 0);
@@ -106,7 +106,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
       assert.equal(sent[0]!.total, 1);
       const completed = await f.state();
       await f.clock.advance(elapsed);
-      await f.emit([...events, ...message('late', { phase: undefined }), ...turn().slice(-2)]);
+      await f.emit([...events, ...message('late', { toolRequests: [{ name: 'view' }] }), ...turn().slice(-2)]);
       assert.deepEqual(await f.state(), completed);
       await invoke(f.backend, 'POST', '/read', { generation: completed.generation, keys: [key('long'), key('early')] });
       await f.emit([...events, ...turn('early')]);
@@ -130,11 +130,11 @@ test('long ask waits and later abort/error never retract a published final or cl
     await f.emit(published.slice(0, -1));
     await f.clock.advance(15 * 60_000 + 1);
     await f.emit([observation(ending, { aborted: true }, { ephemeral: true })]);
-    await f.emit([...published, ...message('late', { phase: undefined }), ...turn().slice(-2)]);
+    await f.emit([...published, ...message('late', { toolRequests: [{ name: 'view' }] }), ...turn().slice(-2)]);
     assert.equal((await f.state()).total, 2);
     assert.deepEqual(sent.map(payload => payload.key.nativeId), ['known-unread', 'published-before-stop']);
 
-    await f.emit(turn('before-ask', { phase: 'commentary' }).slice(0, -2));
+    await f.emit(turn('before-ask', { phase: 'commentary', toolRequests: [{ name: 'ask_user' }] }).slice(0, -2));
     await f.emit([observation('user_input.requested', {}, { ephemeral: true })]);
     await f.control(ask('waiting'));
     await f.clock.advance(24 * 60 * 60_000);
@@ -156,27 +156,27 @@ test('finals have no per-turn quota; invalid identity reports honestly and later
   const f = fixture(t);
   await f.emit(turn('known'));
   await f.emit([turn()[0]!]);
-  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`, { phase: 'final_answer' }));
+  for (let index = 0; index < 129; index++) await f.emit(message(`overflow-${index}`));
   assert.equal((await f.state()).total, 130);
   assert.equal(f.errors.length, 0);
   const before = await f.state();
   await f.emit(message('bad id'));
   assert.equal(f.errors.length, 1);
   assert.equal((f.errors[0] as { code: string }).code, 'INVALID_REPLY_IDENTITY');
-  await f.emit([...message('late', { phase: undefined }), ...turn().slice(-2)]);
+  await f.emit([...message('late', { toolRequests: [{ name: 'view' }] }), ...turn().slice(-2)]);
   assert.deepEqual(await f.state(), before);
   await f.emit(turn('recovered'));
   assert.equal((await f.state()).total, 131);
   assert.equal(f.errors.length, 1, 'later success does not falsify or clear the host report history');
 });
 
-test('unphased messages are ignored and every explicit final enters unread immediately with its own preview', async t => {
+test('tool-bearing messages are ignored and every tool-free reply, with or without phase, enters unread immediately', async t => {
   const sent: NotificationPayload[] = [];
   const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
   await f.emit([turn()[0]!]);
   for (let index = 0; index < 1000; index++) await f.emit(message(`ordinary-${index}`,
-    { content: `Ordinary ${index}`, phase: undefined }));
+    { content: `Ordinary ${index}`, phase: index % 2 ? 'commentary' : undefined, toolRequests: [{ name: 'view' }] }));
   assert.equal((await f.state()).total, 0);
   await f.emit(turn().slice(-2));
   assert.equal((await f.state()).total, 0);
@@ -187,19 +187,19 @@ test('unphased messages are ignored and every explicit final enters unread immed
   await invoke(f.backend, 'POST', '/read', { generation, keys: [key('read-final')] });
   await f.emit([
     turn()[0]!,
-    ...message('read-final', { phase: 'final_answer', content: 'Already read' }),
-    ...message('first-final', { phase: 'final_answer', content: 'First final' }),
-    ...message('second-final', { phase: 'final_answer', content: 'Second final' }),
-    ...message('trailing-commentary', { phase: 'commentary' }),
+    ...message('read-final', { content: 'Already read' }),
+    ...message('phaseless-final', { content: 'Claude final' }),
+    ...message('explicit-final', { phase: 'final_answer', content: 'GPT final' }),
+    ...message('trailing-tool', { phase: 'commentary', toolRequests: [{ name: 'view' }] }),
   ]);
-  assert.equal((await f.state()).total, 2, 'explicit finals do not wait for turn_end or idle');
+  assert.equal((await f.state()).total, 2, 'replies do not wait for turn_end or idle');
   await f.emit(turn().slice(-2));
   assert.equal((await f.state()).total, 2);
   await f.clock.advance(3000);
   assert.deepEqual(sent.map(payload => [payload.key.nativeId, payload.body]), [
-    ['first-final', 'First final'], ['second-final', 'Second final'],
+    ['phaseless-final', 'Claude final'], ['explicit-final', 'GPT final'],
   ]);
-  await f.emit([turn()[0]!, ...message('cancelled-final', { phase: 'final_answer' }), observation('abort'), ...turn().slice(-2)]);
+  await f.emit([turn()[0]!, ...message('cancelled-final'), observation('abort'), ...turn().slice(-2)]);
   assert.equal((await f.state()).total, 3);
   assert.deepEqual(f.errors, []);
 });
@@ -274,7 +274,7 @@ test('finals publish individual contiguous deltas and oversized READ publishes o
   const keys = Array.from({ length: 128 }, (_, index) => key(`${index}:${'界'.repeat(196)}`));
   await f.emit([
     observation('assistant.turn_start', { turnId: '0' }),
-    ...keys.flatMap(item => message(item.nativeId, { phase: 'final_answer', apiCallId: 'x'.repeat(488) })),
+    ...keys.flatMap(item => message(item.nativeId, { apiCallId: 'x'.repeat(488) })),
     ...turn().slice(-2),
   ]);
   const snapshot = await f.state();
