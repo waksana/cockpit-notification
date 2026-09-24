@@ -3,7 +3,7 @@
 Cockpit 的独立未读与通知模块：明确记录每一条未读消息，让消息旁的标记、会话数字、
 PWA 角标及对应推送使用同一份状态。
 
-**当前源码版本为 0.1.16，要求独立 `uiSurfaceVersion: 1` 的配套宿主源码，通知开关仍通过宿主独立菜单注册接入。**
+**当前源码版本为 0.1.17，要求独立 `uiSurfaceVersion: 1` 的配套宿主源码，通知开关仍通过宿主独立菜单注册接入。**
 会话计数复用公共 `ck-badge` 并保留圆形/胶囊几何，业务状态与未读策略不变；精确支持 SHA 见[安装指南](docs/installation.md)。
 主 Agent 非 ephemeral、正文非空且没有工具请求的消息即本轮回复，所有模型同一规则、不看 phase，
 直接加入未读集合，不暂存候选或等待 turn/idle（0.1.13–0.1.16 只认 `final_answer`，Claude 等无 phase 模型会漏计）。
@@ -11,8 +11,8 @@ PWA 角标及对应推送使用同一份状态。
 沿用同一消息 block 任意部分实际连续可见 600ms 逐条核销，持续滚动不重置计时。
 旧宿主已保留错误及过去丢失证据的限制见[实现说明](docs/implementation.md#回复证据生命周期与旧错误)；
 发布与安装状态仍以实际结果为准。
-增量同步与精简通知界面是正式功能。0.1.16 目标安装资产须待
-[v0.1.16 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.16) 实际发布后使用，
+增量同步与精简通知界面是正式功能。0.1.17 目标安装资产须待
+[v0.1.17 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.17) 实际发布后使用，
 不能把功能确认、源码提交、发布资产和某个实例安装混为一谈。
 需要宿主的通用模块事件通路及 `context.menuVersion === 1`；历史 Cockpit 0.2.3
 Release 不含这些能力，不能替代配套宿主。
