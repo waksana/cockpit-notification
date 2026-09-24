@@ -222,7 +222,7 @@ try {
   console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
     controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
     longTurnWithoutExpiry: true, nativeProjectionIdentity: true, pageReopenWithoutNewFailure: true,
-    immediateExplicitFinalsOnly: true, separateExplicitFinals: true,
+    immediateToolFreeRepliesOnly: true, separateRepliesWithOrWithoutPhase: true,
     realErrorRetainedByPinnedHost: true,
     narrowWorker: true, packagedFrontendMenuRegistry: true, noNativeRuntimeOrPushService: true }));
 } finally {
