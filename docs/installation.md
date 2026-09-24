@@ -1,6 +1,6 @@
 # 构建、配套宿主与安装
 
-**当前源码 0.1.15 要求新增 shared-surfaces v1，只处理明确 final 并直接入账，不设候选缓存。**
+**当前源码 0.1.16 要求新增 shared-surfaces v1，只处理明确 final 并直接入账，不设候选缓存。**
 精确配套宿主源码为 `9fd5204bda99a8bd65b2c5ef152cc47ce87837d5`，导出 SDK 版本 0.2.6；
 这不是历史同版本 Release 已支持新能力的声明。
 会话计数复用 `ck-badge` 的基础排版，但保留计数专用圆形/胶囊几何、防压缩、
@@ -17,9 +17,9 @@ SDK 类型基线来自 pin 指定的干净源码提交；旧 UI v1 本身不证�
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
 已发行 0.1.0 的安装说明使用其 tag 文档；delta 和新回执格式不是该版本的现有能力。
-0.1.15 的目标正式安装包为 [v0.1.15 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.15)
-中的 `cockpit-notification-0.1.15.tgz` 与同名 `.sha256`；仅在该 Release 及资产实际发布后下载，
-并执行 `sha256sum -c cockpit-notification-0.1.15.tgz.sha256`。本说明不宣称已发布或部署。
+0.1.16 的目标正式安装包为未来 [v0.1.16 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.16)
+中的 `cockpit-notification-0.1.16.tgz` 与同名 `.sha256`；仅在该 Release 及资产实际发布后下载，
+并执行 `sha256sum -c cockpit-notification-0.1.16.tgz.sha256`。本说明不宣称已发布或部署。
 若资产尚未发布或下载失败，不使用旧包、CI 临时 artifact 或源码 ZIP 冒充正式安装包。
 已安装模块版本的摘要不可更换；内容改变必须使用新版本，不能覆盖原有版本的包。
 
@@ -48,7 +48,7 @@ worker 不需要外部 CDN、动态 import 或模块私有脚本服务。
 
 ```sh
 pnpm package
-pnpm verify:package module-output/cockpit-notification-0.1.15.tgz
+pnpm verify:package module-output/cockpit-notification-0.1.16.tgz
 ```
 
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
@@ -72,7 +72,7 @@ CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建�
 ```sh
 node --import ./apps/server/node_modules/tsx/dist/loader.mjs \
   apps/server/src/module-cli.ts install \
-  /absolute/path/cockpit-notification-0.1.15.tgz --trust-local-code --enable
+  /absolute/path/cockpit-notification-0.1.16.tgz --trust-local-code --enable
 ```
 
 本体管理模块包与数据根；模块不读取或迁移 Copilot native home。

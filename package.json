@@ -1,6 +1,6 @@
 {
   "name": "cockpit-notification",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
