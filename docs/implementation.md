@@ -16,7 +16,7 @@
 | ask 身份 | 宿主当前 AskRequest.requestId，与控制投影和提问区共享；不是伪造原生 requestId |
 | 失效条目 | 已回答/取消/替换的 ask 撤销提醒；确认删除会话或 rewind 撤销受影响会话提醒 |
 | 阅读 | 同一消息 block 任意部分前台实际连续可见 600ms；滚动不重置，完全不可见/失焦/后台重计 |
-| 最终回复 | 只接收主 Agent 明确 `final_answer` 的消息，直接入账 |
+| 最终回复 | 主 Agent 非 ephemeral、正文非空且无工具请求的消息，不看 phase，直接入账 |
 | 推送 | 模块后端调用标准 Web Push；等待窗口默认 3000ms，已核销的不再发送 |
 | 设备配置 | VAPID 和推送订阅与未读账本分开保存，私有模块数据目录 |
 | UI | Web API v2 state 注册、message/sessionStatus middleware、独立 menus v1 注册；菜单只开关本设备通知 |
@@ -57,20 +57,22 @@ hidden/inert、CSS 隐藏、页面 visibility/focus 和当前 session 资格仍�
 将 `pushDelayMs` 设为 0 只会取消推送宽限，不会让后端提前知道稍后才到的阅读确认，
 也不能保证正在看的会话不产生系统通知。候选优化见[后续体验与平台问题](design-questions.md#foreground-suppression)。
 
-## 明确 final 直接入账
+## 无工具回复直接入账
 
-0.1.13 按用户确认只订阅宿主实时 `onNativeEvent` 中的 `assistant.message`：
-主 Agent、非 ephemeral、`data.phase === 'final_answer'`、正文非空、无工具请求且消息身份有效，
-就立即加入未读集合并发布该条 delta。不要求收到 start/delta/turn end/idle，也不按内容关键词猜测。
-同一回合多条明确 final 分别入账；之后的取消、错误或工具事件不撤销已经发布的正式回复。
+模块只订阅宿主实时 `onNativeEvent` 中的 `assistant.message`：
+主 Agent、非 ephemeral、正文非空、无工具请求且消息身份有效，就立即加入未读集合并发布该条 delta。
+没有工具请求表示模型交还控制权、本轮结束，所有模型同一规则。不要求收到 start/delta/turn end/idle，
+也不按内容关键词猜测。同一回合多条无工具回复分别入账；之后的取消、错误或工具事件不撤销已经发布的回复。
 READ、ask 退役、确认删除与 rewind 仍各自按账本规则处理，停止整个模块仍会释放内存。
 
-SDK 1.0.13 的 phase 是可选字符串。无 phase、commentary 或未知 phase 一律不计，
-即使后来正常 idle 也不补猜；使用不提供明确 final 标记的模型可能漏计，这是已接受的边界。
+`phase` 不参与判断。0.1.13–0.1.16 曾只认 `phase === 'final_answer'`，但 Claude 等模型的消息没有 phase，
+这些会话结束后既无未读也无推送；用户 2026-09-24 确认改为上述统一规则。
+2026-09-24 的本地事件核对中，GPT 的 `final_answer` 均无工具请求、`commentary` 均带工具请求；
+Claude 无工具请求且正文非空的主 Agent 消息之后均紧跟 `assistant.turn_end`。
 提供方 `apiCallId`、chunk 编号和 turn 关联信息不参与判断，也不缓存其摘要。
 未读去重直接使用既有 `(sessionId, kind, messageId)` 账本身份，不另建原生事件去重副本。
 
-“新”来自宿主公开的实时观察通路，不来自 phase 本身。历史分页与 bootstrap 快照不接入该处理器，
+“新”来自宿主公开的实时观察通路，不来自消息形状本身。历史分页与 bootstrap 快照不接入该处理器，
 不加载或扫描历史、不补启用前消息。模块不再用流式片段证明新旧；如果把历史事件人为送进实时处理器，
 仅凭同样的 JSON 形状无法区分它与新事件。重复实时投递和已读先到仍由本代身份保证不复活。
 
