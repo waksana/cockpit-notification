@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import type { ModuleFrontendContext } from '@cockpit/module-api';
+import type { ModuleFrontendContext } from '@waksana/cockpit-module-sdk/frontend';
 import { DeviceBridge, sameKey, subscriptionId, vapidBytes } from './device.ts';
 import type { Snapshot } from '../shared/protocol.ts';
 

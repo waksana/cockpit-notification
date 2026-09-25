@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { digest, git, sdkPin } from './identity.mjs';
+import { digest, git, sdkIdentity } from './identity.mjs';
 
 export async function verifyPackage(root, archive, sourceSha = git(root, ['rev-parse', 'HEAD'])) {
   assert.match(sourceSha, /^[a-f0-9]{40}$/);
@@ -19,7 +19,7 @@ export async function verifyPackage(root, archive, sourceSha = git(root, ['rev-p
   assert.equal(receipt.format, 1);
   assert.equal(receipt.product, 'cockpit-notification');
   assert.equal(receipt.sourceSha, sourceSha);
-  assert.deepEqual(receipt.sdk, await sdkPin(root));
+  assert.deepEqual(receipt.sdk, await sdkIdentity(root));
   assert.equal(receipt.node, (await readFile(join(root, '.node-version'), 'utf8')).trim());
   assert.deepEqual(manifest, JSON.parse(await readFile(join(root, 'cockpit.module.json'), 'utf8')));
   assert.equal(receipt.version, manifest.version);

@@ -1,4 +1,4 @@
-import type { ActivateFrontend, MessageProps } from '@cockpit/module-api';
+import type { ActivateFrontend, MessageProps } from '@waksana/cockpit-module-sdk/frontend';
 import { identity, keyId, snapshotKeys } from '../shared/protocol.ts';
 import type { MessageKey, Snapshot } from '../shared/protocol.ts';
 import { DeviceBridge } from './device.ts';

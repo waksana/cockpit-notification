@@ -1,8 +1,11 @@
 # 构建、配套宿主与安装
 
 **当前源码 0.1.17 要求 shared-surfaces v1，不设候选缓存。** 当前源码的回复判定为所有模型统一的无工具回复直接入账（不看 phase）。
-精确配套宿主源码为 `9fd5204bda99a8bd65b2c5ef152cc47ce87837d5`，导出 SDK 版本 0.2.6；
-这不是历史同版本 Release 已支持新能力的声明。
+The build consumes published `@waksana/cockpit-module-sdk@0.2.0` from
+`https://npm.pkg.github.com`; it does not export types from a host checkout.
+The exact integration host is `7d69b6f348e17f098bc5562fdbec317e8e2e4ba6`,
+recorded separately in [`tooling/integration-host.json`](../tooling/integration-host.json).
+SDK semver is independent of host versions and does not prove host compatibility.
 会话计数复用 `ck-badge` 的基础排版，但保留计数专用圆形/胶囊几何、防压缩、
 业务颜色、等宽数字、非交互语义与 stale 标签；不能直接套用可换行文字标签的尺寸。
 激活在注册任何贡献前额外要求 `context.uiSurfaceVersion === 1`；缺少或不支持时明确拒绝。
@@ -10,9 +13,9 @@
 需要宿主提供的通用模块事件及菜单注册，历史 Cockpit 0.2.3 Release 不具备这些能力。
 源码配套宿主要求 Web API v2 的 state 服务、组件 middleware 及 `context.menuVersion === 1`；
 公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
-准确的宿主提交与包版本固定在 [`tooling/host-sdk.json`](../tooling/host-sdk.json)，
-不能把旧的 0.2.x 包视为自动兼容。
-SDK 类型基线来自 pin 指定的干净源码提交；旧 UI v1 本身不证明新增 surface/badge 样式存在。
+The SDK package version and resolution are pinned in `package.json` and `pnpm-lock.yaml`.
+Runtime capability checks remain mandatory; old UI v1 alone does not prove that
+surface/badge styles, menus, state services or module events exist.
 前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
@@ -23,24 +26,46 @@ SDK 类型基线来自 pin 指定的干净源码提交；旧 UI v1 本身不证�
 若资产尚未发布或下载失败，不使用旧包、CI 临时 artifact 或源码 ZIP 冒充正式安装包。
 已安装模块版本的摘要不可更换；内容改变必须使用新版本，不能覆盖原有版本的包。
 
-## 从源码构建
+## Build from source
 
-Node **24.20.0**，pnpm **10.34.5**。先准备 pin 指向的干净本体源码：
+Use Node **24.20.0**, pnpm **10.34.5**, TypeScript **5.9.3** and NodeNext resolution.
+The supported SDK peers are Node types 22-25 and matching React/types 18 or 19;
+this repository locks its own type dependencies and checks declarations without
+`skipLibCheck`. Backend/common/worker code does not need a React runtime.
+
+The repository `.npmrc` maps only `@waksana` to GitHub Packages. Put the following
+literal placeholder in a trusted **user-level** npm config, outside this checkout
+(or select such a file with `NPM_CONFIG_USERCONFIG`):
+
+```ini
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Supply `NODE_AUTH_TOKEN` only through the environment, using an authorized classic
+PAT with `read:packages` and access to the package. Never commit or print the token.
+pnpm 10.34.5 deliberately ignores credential expansion in a project `.npmrc`.
+Public npm packages on GitHub Packages still require authentication; an access
+failure must be resolved explicitly, not bypassed with local tarballs or another registry.
+No host checkout, SDK generation, type symlink, or peer-resolution override is needed:
 
 ```sh
-node scripts/sdk.mjs prepare /absolute/clean/pinned/cockpit
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm typecheck
 pnpm test
 pnpm build
 ```
 
-SDK 导出自真实 `packages/module-api` 及依赖的 protocol，不手抄接口，
-不复制另一工作树的 node_modules。更换 pin 要重新导出并核对来源。
+Use the public root for common types, `/backend` for backend contracts,
+`/frontend` for frontend contracts, and `/runtime` for runtime constants such as
+`MAX_MODULE_EVENT_BYTES`. Do not import private SDK paths or host source.
+pnpm may install optional SDK peers, including React, into the development graph;
+their presence is not a runtime requirement or permission to bundle them.
 
-后端、前端和 worker 分别打包。React/ReactDOM 由宿主提供，不随模块重复打包；
-后端 Web Push 的运行依赖打入产物，第三方许可随 `dist/licenses` 交付。
-worker 不需要外部 CDN、动态 import 或模块私有脚本服务。
+The backend, frontend and worker are bundled separately. The frontend uses
+`context.react`, not a second React/ReactDOM instance. Build guards reject React,
+Zod, host implementation and native SDK code in every bundle. Only public SDK
+runtime constants are bundled; Web Push dependencies and their licenses ship
+with the backend. The worker needs no CDN or dynamic script import.
 
 ## 可追溯的模块包
 
@@ -54,9 +79,34 @@ pnpm verify:package module-output/cockpit-notification-0.1.17.tgz
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
 打包只包含 manifest、dist、许可证和 `module-build.json`；不包括测试、源码、
 SDK、开发依赖、密钥、设备订阅或未读数据。
-源码、SDK 或 dist 在 build 后变更会使 receipt 校验失败，不手写来源凭据绕过。
+The receipt records the actual installed SDK name/version, registry tarball,
+lockfile SHA-512 integrity and an inventory of installed package bytes. It does
+not require host source or a generated SDK pin. Source, installed SDK, resolution
+or dist changes after build invalidate the receipt; never hand-edit it.
 
-CI 对 PR/main 执行固定 SDK 准备、冻结安装、类型/测试、构建、打包与真实宿主的合成模块接入。
+CI installs the frozen registry dependency and builds/packages **before** checking
+out any host source. `actions/setup-node` supplies the trusted npm auth config for
+`https://npm.pkg.github.com`; only the install step receives
+`NODE_AUTH_TOKEN: ${{ github.token }}`, with `contents: read` and `packages: read`.
+The package must grant this repository read access. A local PAT install does not
+prove Actions access; the exact PR head must pass its real workflow.
+
+Only the later integration stage checks out the exact paired host and restores
+its own frozen dependencies. To run that stage locally after committing/building:
+
+```sh
+pnpm --dir /absolute/clean/paired/cockpit install --frozen-lockfile --ignore-scripts
+timeout 300 node --import /absolute/clean/paired/cockpit/apps/server/node_modules/tsx/dist/loader.mjs \
+  scripts/integration.mjs /absolute/clean/paired/cockpit \
+  module-output/cockpit-notification-0.1.17.tgz
+```
+
+The script rejects a dirty or different host commit and verifies the archive.
+It isolates `HOME`, `COPILOT_HOME` and `COCKPIT_HOME`, uses synthetic events and
+in-process HTTP injection, and never starts a native session or production service.
+Changing the SDK pin or integration pairing requires a fresh compatibility run;
+neither change alone establishes compatibility.
+
 首版由维护者将已通过 main CI 的原始 artifact 发布到固定 tag，不重新构建；
 具体来源核对见[版本发行](releases.md)。当前没有自动部署，CI artifact 不是线上已经安装的证明。
 

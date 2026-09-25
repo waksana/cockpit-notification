@@ -3,7 +3,9 @@
 本页记录 0.1.17 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
 要求通用 module/event、menus v1 与独立 shared-surfaces v1；精确宿主支持见[安装指南](installation.md)，
 历史发行版的 UI v1 本身不证明新增 badge 样式存在。
-源码/包身份以 `tooling/host-sdk.json`、模块 manifest 和包内 `module-build.json` 为准。
+Source/package identity is bound by the exact SDK registry resolution in `pnpm-lock.yaml`,
+the module manifest and `module-build.json`. Host compatibility is checked separately
+against `tooling/integration-host.json`; the SDK is not generated from that checkout.
 
 ## 已落定的实现选择
 

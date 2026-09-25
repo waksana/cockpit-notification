@@ -23,7 +23,7 @@
   检查单/多位数字、窄行、浅深色、放大文字和祖先裁剪边界；不使用真实会话。
 - 状态变更需同步检查不变量和乱序时序表，特别是核销先到、旧响应、推送迟到、
   重启清零与旧快照不能清理新通知；不要在多个页面复制各自一份转移规则。
-- 使用 Node 24.20.0 和 pnpm 10.34.5，按[构建步骤](docs/installation.md)准备固定 SDK 与冻结依赖。
+- 使用 Node 24.20.0 和 pnpm 10.34.5，按[构建步骤](docs/installation.md)认证正式 SDK registry 并冻结安装依赖。
   修改后运行最小相关测试、`pnpm typecheck`，包需干净提交与同次 build receipt。
 - 文档变更只做相关链接、锚点与事实检查，不为文档启动 native runtime 或生产服务。
 
@@ -45,7 +45,10 @@
 只能重现相同字节/摘要，source SHA 和 digest 是来源证据，不能替代版本或允许覆盖旧身份。
 
 同步 `package.json`、`cockpit.module.json`、嵌入版本与适用的 lock 元数据，
-更新当前源码配套说明和发行说明，保留历史发行事实。固定 SDK pin 不因版本准备而随意改动。
+更新当前源码配套说明和发行说明，保留历史发行事实。
+The exact SDK package dependency is independent from the integration host pairing;
+neither changes merely because a module version is prepared. Use public SDK entry
+points and keep host React shared; do not reintroduce generated SDKs or host-source builds.
 从最终干净提交重新构建并核对精确 CI 包；不能删除已安装目录或强制绕过安装器来复用版本。
 版本准备和合并不自动授权 tag、Release、安装或重启。
 

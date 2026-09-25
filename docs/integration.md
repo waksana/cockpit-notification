@@ -3,7 +3,10 @@
 **当前源码对所有模型采用无工具回复直接入账（不看 phase），沿用 0.1.13 起的正文内未读底色、独立菜单项注册、增量同步与精简入口。** 0.1.0 的契约见其 tag；
 通用组件接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)，
 通用 SSE payload 通路来自 [waksana/cockpit#30](https://github.com/waksana/cockpit/pull/30)；
-准确构建契约以 `tooling/host-sdk.json` 固定的源码为准，不能假定旧宿主包具有这些接口。
+The build contract is the exact registry SDK dependency in `package.json` and
+`pnpm-lock.yaml`; the independently pinned host in `tooling/integration-host.json`
+is exercised by integration tests. Neither SDK semver nor an older host's API
+version alone proves that the required capabilities exist.
 
 ## 1. 所有权
 

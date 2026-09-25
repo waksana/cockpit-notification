@@ -1,5 +1,5 @@
 import type { ModuleBackend, ModuleBackendContext, ModuleRequest, ModuleResponse, ModuleRoute,
-  ServerEvent } from '@cockpit/module-api';
+  ServerEvent } from '@waksana/cockpit-module-sdk/backend';
 import { identity, keyId, MAX_BATCH, MAX_IDENTITIES, parseKeys, record, type MessageKey } from '../shared/protocol.ts';
 import { finalReply } from './final-reply.ts';
 import { BackendError, safeError } from './errors.ts';

@@ -21,6 +21,11 @@ const packageRoots = new Map();
 for (const { entry, output, ...options } of configurations) {
   const result = await build({ absWorkingDir: root, entryPoints: [entry], outfile: output, bundle: true,
     target: 'es2023', sourcemap: false, legalComments: 'inline', metafile: true, ...options });
+  if (Object.keys(result.metafile.inputs).some(path =>
+    /node_modules\/(?:react(?:-dom)?|zod|@github\/copilot(?:-sdk)?|@cockpit\/[^/]+)\//.test(path) ||
+    /(?:^|\/)(?:apps\/(?:server|web)|packages\/(?:protocol|module-api))\//.test(path))) {
+    throw new Error('Module artifact bundled React or host/native implementation code');
+  }
   if (options.platform === 'browser' && Object.keys(result.metafile.inputs).some(path => /node_modules.*(?:react|web-push)/.test(path))) {
     throw new Error('Browser artifact bundled forbidden runtime dependencies');
   }
@@ -52,6 +57,7 @@ for (const [name, directory] of packageRoots) {
 await copyFile(join(root, 'src/web/styles.css'), join(root, 'dist/web/styles.css'));
 await writeFile(join(root, 'dist/package.json'), '{"type":"module"}\n');
 if (source(root) !== before) throw new Error('Source changed during build');
+if (JSON.stringify(await sdkIdentity(root)) !== JSON.stringify(sdk)) throw new Error('SDK changed during build');
 const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const receipt = { format: 1, product: metadata.name, version: metadata.version, sourceSha: before,
   sdk, node, platform: process.platform, arch: process.arch,
