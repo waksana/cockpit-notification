@@ -1,6 +1,6 @@
 # 首版实现与运行边界
 
-本页记录 0.1.17 当前源码功能；GitHub Release 资产与具体实例的安装状态另行核对。
+This page records current 0.1.18 source behavior; GitHub Release assets and an instance's installed state must be checked separately.
 要求通用 module/event、menus v1 与独立 shared-surfaces v1；精确宿主支持见[安装指南](installation.md)，
 历史发行版的 UI v1 本身不证明新增 badge 样式存在。
 Source/package identity is bound by the exact SDK registry resolution in `pnpm-lock.yaml`,

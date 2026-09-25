@@ -1,6 +1,6 @@
 # 构建、配套宿主与安装
 
-**当前源码 0.1.17 要求 shared-surfaces v1，不设候选缓存。** 当前源码的回复判定为所有模型统一的无工具回复直接入账（不看 phase）。
+**Current source 0.1.18 requires shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
 The build consumes published `@waksana/cockpit-module-sdk@0.2.0` from
 `https://npm.pkg.github.com`; it does not export types from a host checkout.
 The exact integration host is `7d69b6f348e17f098bc5562fdbec317e8e2e4ba6`,
@@ -20,10 +20,13 @@ surface/badge styles, menus, state services or module events exist.
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
 已发行 0.1.0 的安装说明使用其 tag 文档；delta 和新回执格式不是该版本的现有能力。
-0.1.17 的目标正式安装包为未来 [v0.1.17 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.17)
-中的 `cockpit-notification-0.1.17.tgz` 与同名 `.sha256`；仅在该 Release 及资产实际发布后下载，
-并执行 `sha256sum -c cockpit-notification-0.1.17.tgz.sha256`。本说明不宣称已发布或部署。
-若资产尚未发布或下载失败，不使用旧包、CI 临时 artifact 或源码 ZIP 冒充正式安装包。
+The target assets are `cockpit-notification-0.1.18.tgz` and its `.sha256` in the future
+[v0.1.18 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.18).
+Download only after actual publication, then run
+`sha256sum -c cockpit-notification-0.1.18.tgz.sha256`. This is not a publication or deployment claim.
+Before publication, a separately authorized joint deployment uses the unchanged
+successful main CI archive for the exact accepted commit. Neither that CI artifact,
+an older archive nor a source ZIP is a published Release.
 已安装模块版本的摘要不可更换；内容改变必须使用新版本，不能覆盖原有版本的包。
 
 ## Build from source
@@ -73,7 +76,7 @@ with the backend. The worker needs no CDN or dynamic script import.
 
 ```sh
 pnpm package
-pnpm verify:package module-output/cockpit-notification-0.1.17.tgz
+pnpm verify:package module-output/cockpit-notification-0.1.18.tgz
 ```
 
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
@@ -98,7 +101,7 @@ its own frozen dependencies. To run that stage locally after committing/building
 pnpm --dir /absolute/clean/paired/cockpit install --frozen-lockfile --ignore-scripts
 timeout 300 node --import /absolute/clean/paired/cockpit/apps/server/node_modules/tsx/dist/loader.mjs \
   scripts/integration.mjs /absolute/clean/paired/cockpit \
-  module-output/cockpit-notification-0.1.17.tgz
+  module-output/cockpit-notification-0.1.18.tgz
 ```
 
 The script rejects a dirty or different host commit and verifies the archive.
@@ -121,7 +124,7 @@ neither change alone establishes compatibility.
 
 ```sh
 node --enable-source-maps apps/server/dist/module-cli.js install \
-  /absolute/path/cockpit-notification-0.1.17.tgz --trust-local-code --enable
+  /absolute/path/cockpit-notification-0.1.18.tgz --trust-local-code --enable
 ```
 
 本体管理模块包与数据根；模块不读取或迁移 Copilot native home。

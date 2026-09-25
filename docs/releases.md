@@ -20,8 +20,11 @@ CI artifact 只保留有限时间，Release 资产独立保留。
 
 After a joint deployment with the host, tag and release the accepted commit per Cockpit's [release after a joint deployment](https://github.com/waksana/cockpit/blob/main/docs/releasing.md#release-after-acceptance) policy.
 
-已发行 0.1.0 配套当时的 Cockpit 0.2.3；当前 0.1.17 源码要求独立 shared-surfaces v1，
-配套条件见[安装指南](installation.md)。0.1.16 已作为 v0.1.16 发行；0.1.17 尚待联合部署验收后按上方策略发布。
+Historical 0.1.0 paired with Cockpit 0.2.3. Current 0.1.18 source requires
+shared-surfaces v1; see the [installation guide](installation.md) for pairing.
+Versions 0.1.16 and 0.1.17 were published under their own tags. Version 0.1.18
+prepares a fresh patch identity for the SDK migration and awaits joint-deployment
+acceptance before publication under the policy above.
 The SDK version, registry resolution and integrity are locked separately from the exact
 integration host in `tooling/integration-host.json`. Never infer host compatibility from
 SDK semver or backdate a new capability into a historical Release.

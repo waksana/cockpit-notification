@@ -1,4 +1,4 @@
-# Unreleased SDK package migration
+# Cockpit Notification 0.1.18 (source preparation)
 
 Build against the independently published `@waksana/cockpit-module-sdk@0.2.0`
 from GitHub Packages, with exact lockfile integrity and public common/backend/
@@ -8,9 +8,15 @@ checkout, authenticates its own `GITHUB_TOKEN` with `packages: read`, then exerc
 the archive against the separately pinned integration host.
 
 Keep API/capability checks and host-provided React; no React, Zod or host/native
-implementation is bundled. No notification behavior or module version changes,
-tag, Release, installation or deployment are included. A subsequent joint
-deployment must prepare a new immutable runtime version.
+implementation is bundled. Package and manifest now agree at the fresh immutable
+patch identity 0.1.18; never replace an existing 0.1.17 installation's bytes.
+The separate integration host remains
+`7d69b6f348e17f098bc5562fdbec317e8e2e4ba6` in
+`tooling/integration-host.json`. No unread, push, subscription, badge, menu or
+storage behavior changes are included. Preserve the original successful main CI
+archive for any separately authorized joint deployment. This preparation creates
+no tag, Release, installation, deployment or restart, and claims no real-device
+push delivery or Windows acceptance.
 
 # Cockpit Notification 0.1.17
 
