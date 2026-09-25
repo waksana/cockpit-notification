@@ -1,6 +1,6 @@
 # 未读快照、增量与推送状态机
 
-**状态：0.1.17 沿用的正式功能状态契约。** 本文把已确认的内存账本、批量核销、按需快照、
+**Status: the supported state contract retained by 0.1.18.** 本文把已确认的内存账本、批量核销、按需快照、
 延迟 Web Push 和 PWA 清理整理成可实施的状态契约。逻辑字段和操作名用于消除歧义，
 不是已发布 HTTP/SDK ABI；已落定数值与原生兼容判定见[首版实现](implementation.md)，剩余问题见[待细化设计](design-questions.md)。
 用户行为的权威说明见[产品要求](requirements.md)，宿主分工见[协作边界](integration.md)。
