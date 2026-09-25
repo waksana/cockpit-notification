@@ -1,3 +1,17 @@
+# Unreleased SDK package migration
+
+Build against the independently published `@waksana/cockpit-module-sdk@0.2.0`
+from GitHub Packages, with exact lockfile integrity and public common/backend/
+frontend/runtime imports. Remove host-source SDK generation; package receipts
+record the installed SDK identity and bytes instead. CI builds without a host
+checkout, authenticates its own `GITHUB_TOKEN` with `packages: read`, then exercises
+the archive against the separately pinned integration host.
+
+Keep API/capability checks and host-provided React; no React, Zod or host/native
+implementation is bundled. No notification behavior or module version changes,
+tag, Release, installation or deployment are included. A subsequent joint
+deployment must prepare a new immutable runtime version.
+
 # Cockpit Notification 0.1.17
 
 - One reply rule for every model: a live, non-ephemeral primary-agent
@@ -133,7 +147,8 @@ Revisioned unread deltas are accepted product behavior, no longer a trial.
 Release assets must come from the successful CI artifact for the exact tagged main commit.
 This document describes the 0.1.13 source target, not proof of publication or deployment.
 Requires generic module SSE payloads, menu registration v1 and shared-surfaces v1.
-The exact clean source pairing is pinned in `tooling/host-sdk.json`; older UI-v1
+The historical exact source pairing is recorded in the corresponding tag's
+`tooling/host-sdk.json` (current source uses `tooling/integration-host.json`); older UI-v1
 hosts do not automatically provide the new capability or badge styles.
 The module manifest and backend API remain v1.
 

@@ -1,4 +1,4 @@
-import type { ModuleFrontendContext } from '@cockpit/module-api';
+import type { ModuleFrontendContext } from '@waksana/cockpit-module-sdk/frontend';
 import { identity, parseUnreadEvent, record } from '../shared/protocol.ts';
 import type { MessageKey, Snapshot, UnreadSyncHint } from '../shared/protocol.ts';
 import { responseJson } from './store.ts';

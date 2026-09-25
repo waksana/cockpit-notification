@@ -1,4 +1,4 @@
-import type { NativeChatEvent, NativeObservation } from '@cockpit/module-api';
+import type { NativeChatEvent, NativeObservation } from '@waksana/cockpit-module-sdk/backend';
 import type { MessageKey } from '../shared/protocol.ts';
 
 export const key = (nativeId: string, sessionId = 'session-a', kind: MessageKey['kind'] = 'reply'): MessageKey =>

@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict';
 import { chmod, lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { mock } from 'node:test';
+import { checkedIntegrationHost } from './integration-host.mjs';
+import { verifyPackage } from './verify-package.mjs';
 
 const [hostDirectory, packageFile] = process.argv.slice(2);
 if (!hostDirectory || !packageFile || process.argv.length !== 4) throw new Error('Usage: integration.mjs HOST_DIRECTORY ARCHIVE');
 const hostSource = resolve(hostDirectory);
+const moduleRoot = fileURLToPath(new URL('..', import.meta.url));
+const pairing = await checkedIntegrationHost(moduleRoot, hostSource);
+await verifyPackage(moduleRoot, resolve(packageFile));
 const root = await mkdtemp(resolve('node_modules/.notification-integration-'));
 const previous = {};
-for (const [name, value] of Object.entries({ HOME: root, COCKPIT_HOME: join(root, 'host'), COCKPIT_NO_BOOT: '1' })) {
+for (const [name, value] of Object.entries({
+  HOME: root, COPILOT_HOME: join(root, 'copilot'), COCKPIT_HOME: join(root, 'host'), COCKPIT_NO_BOOT: '1',
+})) {
   previous[name] = process.env[name]; process.env[name] = value;
 }
 const native = new Set(), controls = new Set(), changed = [];
@@ -219,7 +226,7 @@ try {
   assert.deepEqual(frontend.menuItems({ menu: 'global' }, menuSource, () => true), []);
   host.close();
   assert.equal(native.size, 0); assert.equal(controls.size, 0);
-  console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true,
+  console.log(JSON.stringify({ module: module.id, version: module.version, sourceBound: true, pairing,
     controlAskAndRead: true, compactReadReceipt: true, atomicModuleDeltas: true, opaqueProviderId: true,
     longTurnWithoutExpiry: true, nativeProjectionIdentity: true, pageReopenWithoutNewFailure: true,
     immediateToolFreeRepliesOnly: true, separateRepliesWithOrWithoutPhase: true,

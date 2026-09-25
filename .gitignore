@@ -1,8 +1,7 @@
 node_modules/
 dist/
 module-output/
-.cockpit-sdk/
-.host-sdk-source/
+.integration-host/
 .module-build.json
 *.log
 .DS_Store

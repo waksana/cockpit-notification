@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
 import type { ModuleBackend, ModuleBackendContext, ModuleResponse, NativeObservation,
-  ServerEvent } from '@cockpit/module-api';
+  ServerEvent } from '@waksana/cockpit-module-sdk/backend';
 import type { PushSubscription } from 'web-push';
 import { activate } from './index.ts';
 import type { Clock, Sender } from './push.ts';

@@ -1,4 +1,4 @@
-import type { NativeObservation } from '@cockpit/module-api';
+import type { NativeObservation } from '@waksana/cockpit-module-sdk/backend';
 import { identity, record } from '../shared/protocol.ts';
 import { BackendError } from './errors.ts';
 import { notificationExcerpt, type NotificationPreview } from './preview.ts';

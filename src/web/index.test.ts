@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
-import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration } from '@cockpit/module-api';
+import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration } from '@waksana/cockpit-module-sdk/frontend';
 import type { ComponentType, RefCallback } from 'react';
 import type { MessageKey, Snapshot, UnreadEvent } from '../shared/protocol.ts';
 import { keyId } from '../shared/protocol.ts';

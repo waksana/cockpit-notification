@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ServerEvent } from '@cockpit/module-api';
+import type { ServerEvent } from '@waksana/cockpit-module-sdk';
 import { activate } from './index.ts';
 import { applyUnreadDelta, parseReadResult, parseSnapshot, type NotificationPayload } from '../shared/protocol.ts';
 import { ask, fixture, flush, invoke, key, message, subscription, turn, observation } from './test-fixtures.ts';
