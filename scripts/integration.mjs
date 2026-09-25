@@ -217,7 +217,7 @@ try {
   for (let index = 0; index < 2; index++) {
     await reopen();
     assert.equal(frontendReports.length, index + 1);
-    assert.match(String(frontendReports.at(-1)), /cockpit-notification: Final reply has an invalid/);
+    assert.match(String(frontendReports.at(-1)), /cockpit-notification: runtime error: Final reply has an invalid/);
     assert.deepEqual((await app.inject(`${base}/state`)).json(), recovered);
     assert.equal((await app.inject('/_modules')).json().errors[0].code, 'INVALID_REPLY_IDENTITY');
     assert.equal(backendReports.length, 1);
