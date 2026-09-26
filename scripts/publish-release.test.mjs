@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { publishRelease, writeGithub } from './publish-release.mjs';
+import { readPublicationSeal } from './publication-seal.mjs';
 
 const tag = 'v1.2.3';
 const sha = 'a'.repeat(40);
@@ -51,7 +52,16 @@ async function fixture(t, options = {}) {
     if (method === 'PATCH') {
       assert.equal(hostname, 'api.github.com');
       assert.equal(path, `/${base}/42`);
-      assert.deepEqual(JSON.parse(body), { draft: false, prerelease: Boolean(rolling), make_latest: rolling ? 'false' : 'true' });
+      const patch = JSON.parse(body);
+      if (rolling) {
+        const seal = readPublicationSeal(patch.body);
+        assert.equal(seal.notes, rolling.notes);
+        assert.equal(seal.record.assets.length, 4);
+        state.release.body = patch.body;
+      }
+      assert.deepEqual({ ...patch, ...(rolling ? { body: undefined } : {}) },
+        { draft: false, prerelease: Boolean(rolling), make_latest: rolling ? 'false' : 'true',
+          ...(rolling ? { body: undefined } : {}) });
       state.writes.push('publish');
       state.release.draft = false;
       if (options.publishError) throw new Error('publish response lost after acceptance');

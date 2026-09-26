@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { promoteMilestone } from './promote-milestone.mjs';
 import { rollingAssetNames } from './verify-rolling-assets.mjs';
+import { publicationSeal } from './publication-seal.mjs';
 
 const repository = 'waksana/cockpit-notification';
 const tag = 'v0.0.0-rolling.31';
@@ -19,6 +20,10 @@ async function fixture(t, options = {}) {
   const bytes = names.map((_, i) => Buffer.from(`synthetic ${i}`));
   const state = { writes: [], downloads: 0, snapshots: 0, verified: 0,
     assets: names.map((name, i) => ({ id: 100 + i, name, size: bytes[i].length, state: 'uploaded' })) };
+  release.body = publicationSeal(release.body, { releaseId: release.id, tag, sourceSha: sha },
+    state.assets, new Map(names.map((name, i) => [name, bytes[i]])));
+  if (options.replacedBeforePromotion) state.assets[0].id = 999;
+  if (options.bytesReplacedBeforePromotion) bytes[0] = Buffer.from('replacement');
   const json = value => Buffer.from(JSON.stringify(value));
   const read = args => {
     const path = args[0];
@@ -71,6 +76,8 @@ test('promotion changes only prerelease/Latest on the same release and verifies 
 for (const [label, options] of [
   ['changed metadata', { changeMetadata: true }], ['changed bytes', { changeBytes: true }],
   ['invalid archive', { invalidArchive: true }],
+  ['assets replaced before promotion', { replacedBeforePromotion: true }],
+  ['bytes replaced before promotion', { bytesReplacedBeforePromotion: true }],
 ]) {
   test(`${label} prevents promotion`, async t => {
     const { state, run } = await fixture(t, options);

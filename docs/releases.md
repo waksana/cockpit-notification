@@ -69,6 +69,10 @@ All writes use the existing single-attempt HTTPS transport: create the immutable
 tag if absent, create a prerelease draft, upload all four assets, download/verify
 their exact bytes and IDs, then PATCH the same Release to `draft:false`,
 `prerelease:true`, `make_latest:false`. Rolling never claims Latest.
+That publication PATCH also appends a machine-readable identity record to the
+complete notes: original Release ID and each asset's ID, name, size and SHA-256.
+Promotion compares against this publication-time record, not merely whichever
+assets happen to exist when promotion starts. This adds no fifth asset.
 
 No write is automatically retried, including redirects, HTTP errors, timeouts or
 lost acknowledgements. An uncertain operation is observed read-only and fails
@@ -99,6 +103,8 @@ writing. Its only write is a PATCH to the **original Release ID** with
 and the Latest endpoint. There is no build, tag/version change, asset replacement,
 title/body edit or second Release. Non-Rolling tags, drafts, missing/changed assets,
 identity races or an unconfirmed tag reject. Unknown write results are not retried.
+Replaced assets reject even when replacement happened before dispatch. Historical
+releases without this record cannot be promoted by this new entry point.
 
 ## Verification and delivery boundaries
 

@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeGithub } from './publish-release.mjs';
 import { rollingAssetNames, verifyRollingAssets } from './verify-rolling-assets.mjs';
+import { verifyPublicationSeal } from './publication-seal.mjs';
 
 const readGithub = args => execFileSync('gh', ['api', ...args], { maxBuffer: 40 * 1024 * 1024 });
 export async function promoteMilestone({ repository, tag, confirmation, root,
@@ -46,6 +47,7 @@ export async function promoteMilestone({ repository, tag, confirmation, root,
       assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
       assert.equal(asset.state, 'uploaded');
     }
+    verifyPublicationSeal(release.body, { releaseId: release.id, tag, sourceSha: ref.object.sha }, assets);
     return { id: release.id, tag, sourceSha: ref.object.sha, name: release.name, body: release.body,
       prerelease: release.prerelease, assets };
   };
@@ -62,6 +64,7 @@ export async function promoteMilestone({ repository, tag, confirmation, root,
         else original.set(asset.name, bytes);
         await writeFile(join(directory, asset.name), bytes);
       }
+      verifyPublicationSeal(state.body, { releaseId: state.id, tag, sourceSha: state.sourceSha }, state.assets, original);
       await verify(directory, { repository, tag, sourceSha: state.sourceSha });
     };
     await download(before, false);

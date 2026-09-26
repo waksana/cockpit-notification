@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { publicationSeal, readPublicationSeal, verifyPublicationSeal } from './publication-seal.mjs';
 
 const runGh = (args, input) => execFileSync('gh', args, {
   input, maxBuffer: 40 * 1024 * 1024, timeout: 120_000,
@@ -75,7 +76,9 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
     if (rolling) {
       assert.equal(release.target_commitish, sha, 'Release source changed');
       assert.equal(release.name, rolling.title, 'Release title changed');
-      assert.equal(release.body, rolling.notes, 'Release notes changed');
+      if (release.body !== rolling.notes) {
+        assert.equal(readPublicationSeal(release.body).notes, rolling.notes, 'Release notes changed');
+      } else assert.equal(draft, true, 'Published Rolling is missing original asset identity');
     }
   };
   const snapshot = async (id, draft) => {
@@ -90,6 +93,9 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
       assert.ok(Number.isSafeInteger(asset.id) && asset.id > 0, 'Invalid asset ID');
       assert.equal(asset.state, 'uploaded', 'Asset upload is incomplete');
       assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0, 'Invalid asset size');
+    }
+    if (rolling && release.body !== rolling.notes) {
+      verifyPublicationSeal(release.body, { releaseId: id, tag, sourceSha: sha }, assets, expected);
     }
     // Download counters and URLs can change without changing asset identity.
     return assets.map(({ id: assetId, name, size, state, digest, created_at, updated_at }) => ({
@@ -154,7 +160,8 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
     await checkAssets(assets);
     assert.deepEqual(await snapshot(id, draft), assets, 'Assets changed during verification');
     if (draft) await mutate(() => write('api.github.com', `/${base}/${id}`,
-      Buffer.from(JSON.stringify({ draft: false, prerelease: Boolean(rolling), make_latest: rolling ? 'false' : 'true' })),
+      Buffer.from(JSON.stringify({ draft: false, prerelease: Boolean(rolling), make_latest: rolling ? 'false' : 'true',
+        ...(rolling ? { body: publicationSeal(rolling.notes, { releaseId: id, tag, sourceSha: sha }, assets, expected) } : {}) })),
       'application/json', { method: 'PATCH' }));
     const published = await snapshot(id, false);
     assert.deepEqual(published, assets, 'Assets changed during publication');
