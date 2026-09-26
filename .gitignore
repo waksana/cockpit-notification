@@ -3,5 +3,9 @@ dist/
 module-output/
 .integration-host/
 .module-build.json
+.module-manifest.json
+.module-deployment.json
+.release-readback-*/
+.validation/
 *.log
 .DS_Store

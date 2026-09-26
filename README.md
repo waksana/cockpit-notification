@@ -3,7 +3,7 @@
 Cockpit 的独立未读与通知模块：明确记录每一条未读消息，让消息旁的标记、会话数字、
 PWA 角标及对应推送使用同一份状态。
 
-**Current source prepares 0.1.18 for the SDK build migration; `uiSurfaceVersion: 1` and the host's independent menu registration remain required.**
+**Main remains `0.0.0-dev`; every merged main PR attempts an immutable [Rolling release](docs/releases.md). `uiSurfaceVersion: 1` and the host's independent menu registration remain required.**
 会话计数复用公共 `ck-badge` 并保留圆形/胶囊几何，业务状态与未读策略不变；精确支持 SHA 见[安装指南](docs/installation.md)。
 主 Agent 非 ephemeral、正文非空且没有工具请求的消息即本轮回复，所有模型同一规则、不看 phase，
 直接加入未读集合，不暂存候选或等待 turn/idle（0.1.13–0.1.16 只认 `final_answer`，Claude 等无 phase 模型会漏计）。
@@ -11,8 +11,9 @@ PWA 角标及对应推送使用同一份状态。
 沿用同一消息 block 任意部分实际连续可见 600ms 逐条核销，持续滚动不重置计时。
 旧宿主已保留错误及过去丢失证据的限制见[实现说明](docs/implementation.md#回复证据生命周期与旧错误)；
 发布与安装状态仍以实际结果为准。
-Incremental synchronization and the compact notification UI remain supported. Download 0.1.18 release assets only after
-[v0.1.18 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.18) is actually published.
+Incremental synchronization and the compact notification UI remain supported.
+Download only verified non-draft [Release assets](https://github.com/waksana/cockpit-notification/releases);
+Rolling sequence, not completion time or Latest, determines update order.
 不能把功能确认、源码提交、发布资产和某个实例安装混为一谈。
 需要宿主的通用模块事件通路及 `context.menuVersion === 1`；历史 Cockpit 0.2.3
 Release 不含这些能力，不能替代配套宿主。

@@ -1,3 +1,12 @@
+# Cockpit Notification development
+
+Switch to per-merged-main-PR Rolling builds with immutable workflow sequence
+identity, source-derived format-2 deployment descriptors and verified four-asset
+publication. Main remains `0.0.0-dev`; Milestone promotion edits an existing
+selected Rolling in place without rebuilding. Historical release facts below
+remain unchanged. See [release policy](releases.md) for the cutover and recovery.
+No unread, push, subscription, private storage or SDK pairing behavior changes.
+
 # Cockpit Notification 0.1.18 (source preparation)
 
 Build against the independently published `@waksana/cockpit-module-sdk@0.2.0`

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { request as httpsRequest } from 'node:https';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,15 +42,17 @@ export function writeGithub(hostname, path, body, contentType, {
 }
 
 export async function publishRelease({ repository, tag, sha, directory, root, gh = runGh,
+  rolling,
   write = writeGithub,
   verify = path => execFileSync(process.execPath,
     [join(root, 'scripts/check-release.mjs'), tag, sha, path], { stdio: 'inherit' }) }) {
   assert.match(repository, /^[\w.-]+\/[\w.-]+$/);
-  assert.match(tag, /^v\d+\.\d+\.\d+$/);
+  assert.match(tag, rolling ? /^v0\.0\.0-rolling\.[1-9]\d*$/ : /^v\d+\.\d+\.\d+$/);
   assert.match(sha, /^[a-f0-9]{40}$/);
   const base = `repos/${repository}/releases`;
   const archive = `cockpit-notification-${tag.slice(1)}.tgz`;
-  const names = [archive, `${archive}.sha256`].sort();
+  const names = [archive, `${archive}.sha256`,
+    ...(rolling ? ['cockpit-deployment.json', 'cockpit-deployment.json.sha256'] : [])].sort();
   const json = async args => JSON.parse((await gh(['api', ...args])).toString());
   const pages = async endpoint => {
     const result = await json([`${endpoint}?per_page=100`, '--paginate', '--slurp']);
@@ -69,7 +70,12 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
     if (id !== undefined) assert.equal(release.id, id, 'Release ID changed');
     assert.equal(release.tag_name, tag, 'Release tag changed');
     assert.equal(release.draft, draft, draft ? 'Release is already published' : 'Release is still a draft');
-    assert.equal(release.prerelease, false, 'Prerelease conflicts with stable publication');
+    assert.equal(release.prerelease, Boolean(rolling), 'Prerelease conflicts with publication channel');
+    if (rolling) {
+      assert.equal(release.target_commitish, sha, 'Release source changed');
+      assert.equal(release.name, rolling.title, 'Release title changed');
+      assert.equal(release.body, rolling.notes, 'Release notes changed');
+    }
   };
   const snapshot = async (id, draft) => {
     const selected = await discover();
@@ -109,12 +115,13 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
   const expected = new Map(await Promise.all(names.map(async name => [name, await readFile(join(directory, name))])));
   let release = await discover();
   if (release) {
-    checkMetadata(release, true);
+    checkMetadata(release, rolling ? release.draft : true);
   } else {
     const body = Buffer.from(JSON.stringify({
-      tag_name: tag, target_commitish: sha, draft: true, prerelease: false,
-      name: `Cockpit Notification ${tag}`,
-      body: await readFile(join(root, 'docs/release-notes.md'), 'utf8'), generate_release_notes: true,
+      tag_name: tag, target_commitish: sha, draft: true, prerelease: Boolean(rolling),
+      name: rolling?.title ?? `Cockpit Notification ${tag}`,
+      body: rolling?.notes ?? await readFile(join(root, 'docs/release-notes.md'), 'utf8'),
+      ...(rolling ? { make_latest: 'false' } : { generate_release_notes: true }),
     }));
     const created = JSON.parse((await mutate(() =>
       write('api.github.com', `/${base}`, body, 'application/json'))).toString());
@@ -130,7 +137,7 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
     }
   }
   const id = release.id;
-  const downloaded = await mkdtemp(join(tmpdir(), 'notification-release-'));
+  const downloaded = await mkdtemp(join(root, '.release-readback-'));
   try {
     const checkAssets = async assets => {
       for (const asset of assets) {
@@ -141,11 +148,12 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
       }
       await verify(downloaded);
     };
-    const assets = await snapshot(id, true);
+    const draft = release.draft;
+    const assets = await snapshot(id, draft);
     await checkAssets(assets);
-    assert.deepEqual(await snapshot(id, true), assets, 'Assets changed during verification');
-    await mutate(() => write('api.github.com', `/${base}/${id}`,
-      Buffer.from(JSON.stringify({ draft: false, prerelease: false, make_latest: 'true' })),
+    assert.deepEqual(await snapshot(id, draft), assets, 'Assets changed during verification');
+    if (draft) await mutate(() => write('api.github.com', `/${base}/${id}`,
+      Buffer.from(JSON.stringify({ draft: false, prerelease: Boolean(rolling), make_latest: rolling ? 'false' : 'true' })),
       'application/json', { method: 'PATCH' }));
     const published = await snapshot(id, false);
     assert.deepEqual(published, assets, 'Assets changed during publication');

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { git } from './identity.mjs';
+import { buildIdentity } from './rolling-identity.mjs';
 
 export async function integrationHost(root) {
   const pairing = JSON.parse(await readFile(join(root, 'tooling/integration-host.json'), 'utf8'));
@@ -25,5 +26,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const root = fileURLToPath(new URL('..', import.meta.url));
   const pairing = await integrationHost(root);
   const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-  console.log(`repository=${pairing.repository}\ncommit=${pairing.commit}\narchive=${metadata.name}-${metadata.version}.tgz`);
+  const identity = buildIdentity(metadata.version, git(root, ['rev-parse', 'HEAD']));
+  console.log(`repository=${pairing.repository}\ncommit=${pairing.commit}\narchive=${metadata.name}-${identity.version}.tgz`);
 }

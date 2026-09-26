@@ -8,7 +8,7 @@ test('package metadata and install manifest share one semantic version identity'
   const metadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const manifest = JSON.parse(await readFile(new URL('../cockpit.module.json', import.meta.url), 'utf8'));
   assert.equal(metadata.name, manifest.id);
-  assert.match(metadata.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(metadata.version, '0.0.0-dev');
   assert.equal(manifest.version, metadata.version);
 });
 

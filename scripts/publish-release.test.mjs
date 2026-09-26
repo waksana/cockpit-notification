@@ -13,13 +13,19 @@ const base = `repos/${repository}/releases`;
 const names = ['cockpit-notification-1.2.3.tgz', 'cockpit-notification-1.2.3.tgz.sha256'];
 
 async function fixture(t, options = {}) {
+  const tag = options.rolling ? 'v0.0.0-rolling.42' : 'v1.2.3';
+  const archive = `cockpit-notification-${tag.slice(1)}.tgz`;
+  const names = [archive, `${archive}.sha256`,
+    ...(options.rolling ? ['cockpit-deployment.json', 'cockpit-deployment.json.sha256'] : [])].sort();
+  const rolling = options.rolling ? { title: 'Complete PR title', notes: 'Full PR body\nand provenance' } : undefined;
   const directory = await mkdtemp(join(tmpdir(), 'notification-release-test-'));
   t.after(() => rm(directory, { recursive: true }));
   await mkdir(join(directory, 'docs'));
   await writeFile(join(directory, 'docs/release-notes.md'), 'Synthetic release notes');
   const bytes = names.map((_, i) => Buffer.from(`synthetic-${i}`));
   for (let i = 0; i < names.length; i++) await writeFile(join(directory, names[i]), bytes[i]);
-  const draft = { id: 42, tag_name: tag, draft: true, prerelease: false, target_commitish: 'main' };
+  const draft = { id: 42, tag_name: tag, draft: true, prerelease: Boolean(rolling),
+    target_commitish: rolling ? sha : 'main', ...(rolling ? { name: rolling.title, body: rolling.notes } : {}) };
   const state = {
     release: options.absent ? undefined : { ...draft, ...options.release },
     assets: names.map((name, i) => ({ id: 100 + i, name, size: bytes[i].length, state: 'uploaded' })),
@@ -32,8 +38,9 @@ async function fixture(t, options = {}) {
       assert.equal(hostname, 'api.github.com');
       assert.equal(method, 'POST');
       assert.deepEqual(JSON.parse(body), {
-        tag_name: tag, target_commitish: sha, draft: true, prerelease: false,
-        name: `Cockpit Notification ${tag}`, body: 'Synthetic release notes', generate_release_notes: true,
+        tag_name: tag, target_commitish: sha, draft: true, prerelease: Boolean(rolling),
+        name: rolling?.title ?? `Cockpit Notification ${tag}`, body: rolling?.notes ?? 'Synthetic release notes',
+        ...(rolling ? { make_latest: 'false' } : { generate_release_notes: true }),
       });
       state.writes.push('create');
       state.release = { ...draft };
@@ -44,7 +51,7 @@ async function fixture(t, options = {}) {
     if (method === 'PATCH') {
       assert.equal(hostname, 'api.github.com');
       assert.equal(path, `/${base}/42`);
-      assert.deepEqual(JSON.parse(body), { draft: false, prerelease: false, make_latest: 'true' });
+      assert.deepEqual(JSON.parse(body), { draft: false, prerelease: Boolean(rolling), make_latest: rolling ? 'false' : 'true' });
       state.writes.push('publish');
       state.release.draft = false;
       if (options.publishError) throw new Error('publish response lost after acceptance');
@@ -86,7 +93,7 @@ async function fixture(t, options = {}) {
     if (endpoint === `${base}/42`) {
       return encode(options.changedId ? { ...state.release, id: 43 } : state.release);
     }
-    const index = [100, 101].findIndex(id => endpoint === `${base}/assets/${id}`);
+    const index = names.findIndex((_, i) => endpoint === `${base}/assets/${100 + i}`);
     assert.ok(index >= 0, `Unexpected API request: ${endpoint}`);
     assert.ok(args.includes('Accept: application/octet-stream'));
     state.assets[index].download_count = (state.assets[index].download_count ?? 0) + 1;
@@ -100,8 +107,28 @@ async function fixture(t, options = {}) {
     }
     if (options.changeAssets && path !== directory) state.assets[0].id = 200;
   };
-  const run = () => publishRelease({ root: directory, directory, repository, tag, sha, gh, write, verify });
+  const run = () => publishRelease({ root: directory, directory, repository, tag, sha, gh, write, verify, rolling });
   return { state, run };
+}
+
+test('Rolling uploads exactly four assets and never claims Latest; completed rerun is read-only', async t => {
+  const { state, run } = await fixture(t, { absent: true, rolling: true });
+  const result = await run();
+  assert.equal(result.assets.length, 4);
+  assert.equal(state.release.prerelease, true);
+  assert.deepEqual(state.writes, ['create', 'upload', 'upload', 'upload', 'upload', 'publish']);
+  state.writes.length = 0;
+  assert.deepEqual(await run(), result);
+  assert.deepEqual(state.writes, []);
+});
+
+for (const release of [{ target_commitish: 'b'.repeat(40) }, { name: 'changed title' },
+  { body: 'truncated body' }, { prerelease: false }]) {
+  test(`Rolling rejects immutable metadata drift ${Object.keys(release)[0]}`, async t => {
+    const { state, run } = await fixture(t, { rolling: true, release });
+    await assert.rejects(run());
+    assert.deepEqual(state.writes, []);
+  });
 }
 
 test('fresh release creates once, discovers the draft on a later page, and publishes by ID', async t => {

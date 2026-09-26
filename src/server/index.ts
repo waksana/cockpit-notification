@@ -8,6 +8,7 @@ import { networkSender, PushScheduler, systemClock, type Clock, type Sender } fr
 import { settings, SubscriptionStore } from './storage.ts';
 import { unreadEvent } from './unread-events.ts';
 import { notificationExcerpt, sessionTitle, type NotificationPreview } from './preview.ts';
+export { buildVersion } from '../shared/build.ts';
 
 export interface BackendDependencies {
   clock?: Clock;

@@ -1,0 +1,34 @@
+name: Milestone
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing successful Rolling tag to promote in place
+        type: string
+        required: true
+      confirm_tag:
+        description: Repeat the exact selected tag to confirm promotion to Latest
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+      - name: Verify the existing Rolling and edit only its channel status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MILESTONE_TAG: ${{ inputs.tag }}
+          MILESTONE_CONFIRM_TAG: ${{ inputs.confirm_tag }}
+        run: node scripts/promote-milestone.mjs

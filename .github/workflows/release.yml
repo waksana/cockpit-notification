@@ -1,19 +1,22 @@
-name: Release
+# Identity authority: keep this workflow's name and path stable. Do not reset its run counter.
+name: Rolling
 on:
-  push:
-    tags: ['v*']
+  pull_request:
+    branches: [main]
+    types: [closed]
 
 permissions:
   contents: read
   packages: read
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
+# No shared concurrency group: GitHub can replace pending jobs even without cancellation.
 jobs:
   checks:
+    if: github.event.pull_request.merged == true
     uses: ./.github/workflows/ci.yml
+    with:
+      source_sha: ${{ github.event.pull_request.merge_commit_sha }}
+      rolling_sequence: ${{ format('{0}', github.run_number) }}
     permissions:
       contents: read
       packages: read
@@ -21,15 +24,18 @@ jobs:
   publish:
     needs: checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
       actions: read
       packages: read
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      ROLLING_SEQUENCE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
@@ -45,14 +51,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ github.token }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: cockpit-notification-${{ github.sha }}-linux-x64
+          name: cockpit-notification-${{ env.SOURCE_SHA }}-${{ env.ROLLING_SEQUENCE }}-linux-x64
           path: release-artifact
-      - name: Verify source, tag and downloaded archive
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/check-release.mjs "$RELEASE_TAG" "$GITHUB_SHA" release-artifact
-      - name: Discover, verify and publish the exact draft by ID
+      - name: Verify, create immutable tag, upload draft and publish verified Rolling
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/publish-release.mjs "$RELEASE_TAG" "$GITHUB_SHA" release-artifact
+        run: node scripts/publish-rolling.mjs release-artifact

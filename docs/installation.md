@@ -1,6 +1,6 @@
 # 构建、配套宿主与安装
 
-**Current source 0.1.18 requires shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
+**Current source `0.0.0-dev` requires shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
 The build consumes published `@waksana/cockpit-module-sdk@0.2.0` from
 `https://npm.pkg.github.com`; it does not export types from a host checkout.
 The exact integration host is `7d69b6f348e17f098bc5562fdbec317e8e2e4ba6`,
@@ -20,13 +20,11 @@ surface/badge styles, menus, state services or module events exist.
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
 已发行 0.1.0 的安装说明使用其 tag 文档；delta 和新回执格式不是该版本的现有能力。
-The target assets are `cockpit-notification-0.1.18.tgz` and its `.sha256` in the future
-[v0.1.18 Release](https://github.com/waksana/cockpit-notification/releases/tag/v0.1.18).
-Download only after actual publication, then run
-`sha256sum -c cockpit-notification-0.1.18.tgz.sha256`. This is not a publication or deployment claim.
-Before publication, a separately authorized joint deployment uses the unchanged
-successful main CI archive for the exact accepted commit. Neither that CI artifact,
-an older archive nor a source ZIP is a published Release.
+Published packages use `cockpit-notification-0.0.0-rolling.<sequence>.tgz`, its
+`.sha256`, and the deployment descriptor/checksum in the [release policy](releases.md).
+Download only after publication and verify both checksum files with `sha256sum -c`.
+A CI artifact or source ZIP is not a published Release. Select compatible
+releases by descriptor sequence, not Latest.
 已安装模块版本的摘要不可更换；内容改变必须使用新版本，不能覆盖原有版本的包。
 
 ## Build from source
@@ -94,12 +92,13 @@ with the backend. The worker needs no CDN or dynamic script import.
 
 ```sh
 pnpm package
-pnpm verify:package module-output/cockpit-notification-0.1.18.tgz
+pnpm verify:package module-output/cockpit-notification-0.0.0-dev.tgz
 ```
 
 `module-output` 必须是不存在的新目录，或给 package 命令传一个新的输出路径。
-打包只包含 manifest、dist、许可证和 `module-build.json`；不包括测试、源码、
-SDK、开发依赖、密钥、设备订阅或未读数据。
+Packages contain the manifest, dist, license, build receipt and (for Rolling)
+the root deployment descriptor. Tests, source, SDK, development dependencies,
+secrets, subscriptions and unread data do not ship.
 The receipt records the actual installed SDK name/version, registry tarball,
 lockfile SHA-512 integrity and an inventory of installed package bytes. It does
 not require host source or a generated SDK pin. Source, installed SDK, resolution
@@ -119,7 +118,7 @@ its own frozen dependencies. To run that stage locally after committing/building
 pnpm --dir /absolute/clean/paired/cockpit install --frozen-lockfile --ignore-scripts
 timeout 300 node --import /absolute/clean/paired/cockpit/apps/server/node_modules/tsx/dist/loader.mjs \
   scripts/integration.mjs /absolute/clean/paired/cockpit \
-  module-output/cockpit-notification-0.1.18.tgz
+  module-output/cockpit-notification-0.0.0-dev.tgz
 ```
 
 The script rejects a dirty or different host commit and verifies the archive.
@@ -128,8 +127,9 @@ in-process HTTP injection, and never starts a native session or production servi
 Changing the SDK pin or integration pairing requires a fresh compatibility run;
 neither change alone establishes compatibility.
 
-首版由维护者将已通过 main CI 的原始 artifact 发布到固定 tag，不重新构建；
-具体来源核对见[版本发行](releases.md)。当前没有自动部署，CI artifact 不是线上已经安装的证明。
+Every merged main PR publishes its original verified Rolling CI artifact without
+rebuilding. See [releases](releases.md); publication does not prove installation
+or authorize an external deployment.
 
 ## 安装
 
@@ -142,7 +142,7 @@ neither change alone establishes compatibility.
 
 ```sh
 node --enable-source-maps apps/server/dist/module-cli.js install \
-  /absolute/path/cockpit-notification-0.1.18.tgz --trust-local-code --enable
+  /absolute/path/cockpit-notification-0.0.0-rolling.SEQUENCE.tgz --trust-local-code --enable
 ```
 
 本体管理模块包与数据根；模块不读取或迁移 Copilot native home。
