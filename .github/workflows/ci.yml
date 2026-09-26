@@ -4,13 +4,14 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
   packages: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -18,9 +19,12 @@ jobs:
     name: Required checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ env.SOURCE_SHA }}
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
         with:
@@ -43,7 +47,7 @@ jobs:
       - name: Verify exact package
         env:
           ARCHIVE: ${{ steps.integration.outputs.archive }}
-        run: node scripts/verify-package.mjs "module-output/$ARCHIVE" "$GITHUB_SHA"
+        run: node scripts/verify-package.mjs "module-output/$ARCHIVE" "$SOURCE_SHA"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: ${{ steps.integration.outputs.repository }}
@@ -58,7 +62,7 @@ jobs:
         run: timeout 300 node --import ./.integration-host/apps/server/node_modules/tsx/dist/loader.mjs scripts/integration.mjs .integration-host "module-output/$ARCHIVE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: cockpit-notification-${{ github.sha }}
+          name: cockpit-notification-${{ env.SOURCE_SHA }}-linux-x64
           path: |
             module-output/*.tgz
             module-output/*.tgz.sha256
