@@ -1,6 +1,6 @@
 # 参与开发
 
-Current source is 0.1.18 and requires shared-surfaces v1; see the [installation guide](docs/installation.md) for the exact host pairing.
+Main stays `0.0.0-dev` and requires shared-surfaces v1; see the [installation guide](docs/installation.md) for the exact host pairing.
 发布状态以对应 GitHub Release 为准。先阅读[产品要求](docs/requirements.md)、
 [状态机](docs/state-machines.md)和[实现边界](docs/implementation.md)。
 未完成的平台覆盖不能因为类型或合成测试通过就宣传为已验证。
@@ -45,20 +45,22 @@ install or product build.
 
 ### 安装版本不可变
 
-不要求每个提交都升级版本。在为安装或部署打包之前，须与已经交付的版本比较：
-包内容字节改变就必须使用新的 semver；兼容修复通常升级 patch。同一模块 ID 与版本
-只能重现相同字节/摘要，source SHA 和 digest 是来源证据，不能替代版本或允许覆盖旧身份。
-
-同步 `package.json`、`cockpit.module.json`、嵌入版本与适用的 lock 元数据，
-更新当前源码配套说明和发行说明，保留历史发行事实。
+Do not bump product versions, prepare release-only PRs or push version tags.
+Every actual merged `main` PR automatically attempts an immutable Rolling for its
+exact merge SHA, including docs/chore PRs. Main remains `0.0.0-dev`; Actions injects
+the sequence version only into ignored isolated build outputs.
+One module/version has one immutable byte identity; never overwrite an installed
+version or bypass installer checks. PR-only/no-merge authorization prevents the
+automatic publication boundary. Milestone promotion requires explicit selection.
 The exact SDK package dependency is independent from the integration host pairing;
 neither changes merely because a module version is prepared. Use public SDK entry
 points and keep host React shared; do not reintroduce generated SDKs or host-source builds.
-从最终干净提交重新构建并核对精确 CI 包；不能删除已安装目录或强制绕过安装器来复用版本。
-版本准备和合并不自动授权 tag、Release、安装或重启。
+Build from the final clean commit and verify the exact CI archive. Installation,
+external deployment and restart require separate authorization.
 
 一方源码按 `GPL-3.0-only` 标注，保留 [LICENSE](LICENSE)。
 引入第三方包或资源时核对固定版本并保留许可，不能因为宿主已有某依赖就假定模块包无需声明。
 
-包格式、验证命令与 CI 见构建指南；发行遵循[固定来源流程](docs/releases.md)，当前无自动部署。
-合并、发布、安装和运行生效分别报告，前一步不是后一步的自动授权。
+Package format and validation are in the build guide; follow the
+[Rolling/Milestone policy](docs/releases.md). Report merge, publication,
+promotion and external deployment separately.

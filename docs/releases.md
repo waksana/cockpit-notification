@@ -1,74 +1,122 @@
-# 版本发行
+# Rolling and Milestone releases
 
-正式资产是 `cockpit-notification-X.Y.Z.tgz` 和同名 `.sha256`，不是 npm 包或源码 ZIP。
-Release workflow 复用原生 CI 检查链，并发布该次检查生成的原始 artifact。
+## Cutover
 
-1. 通过 PR 更新版本与发行说明，核对独立 SDK 包锁定与集成宿主配对，并合入 main。
-2. 确认该精确 main SHA 的 Required checks 成功；不能用 PR 的临时 merge SHA 冒充 main。
-3. 创建指向该 SHA 的 annotated `vX.Y.Z` tag 并推送。
-4. Release workflow 在 tag SHA 上运行相同 CI，下载
-   `cockpit-notification-<完整源 SHA>-linux-x64` artifact，并确认只包含对应 tgz 和 checksum。
-5. workflow 运行 `scripts/check-release.mjs`，核对 tag/version/release notes、main 来源、
-   manifest、Node、SDK registry/version/integrity、集成宿主 identity、文件清单及全部摘要。
-6. `scripts/publish-release.mjs` discovers the unique exact-tag Release through the
-   authenticated, fully paginated releases list (including drafts), not the published-tag
-   endpoint. It creates a draft only when that successful listing proves absence.
-   An existing complete draft can resume without creating or uploading anything.
-7. The workflow reads the selected Release and all its assets by numeric ID, downloads
-   assets by ID, compares their bytes with the checked CI artifact, and repeats package,
-   source and remote tag verification. Only then does it publish that same Release ID
-   as a stable Latest Release. The publish job never rebuilds or repackages.
-8. 回读正式 Release、tag 和资产摘要，保留本次源码/SDK/宿主/包 identity。
+The merge of the PR resolving [#49](https://github.com/waksana/cockpit-notification/issues/49)
+switches this repository to Rolling. Every actually merged `main` PR, including
+documentation and chores, independently runs `.github/workflows/release.yml`
+(`Rolling`) against its exact `merge_commit_sha`. Unmerged PRs and historical
+merges are not published. Historical tags, Releases and assets remain untouched;
+the old tag-push publication trigger is retired.
 
-版本 tag 不移动或删除；同版本资产不覆盖、不使用 clobber。命令超时或网络失败后，
-先查询远端实际状态再决定，不假设远端没有发布，不盲目重试变更请求。
-CI artifact 只保留有限时间，Release 资产独立保留。
+The trigger uses the trusted base-repository `pull_request_target: closed`
+context so merged fork PRs also receive publication permissions. Jobs are gated
+on `merged == true` and check out only the accepted merge SHA, never an unmerged
+PR head; the publication gate also checks that SHA belongs to main history.
 
-<a id="atomic-release-publication"></a>
-正式、非 draft、非 prerelease 且资产完整的 Release 才是发布就绪信号。workflow
-在远端资产回读和复验前保持 draft；部分上传或失败的 draft 留作诊断，不得被自动
-删除或覆盖。创建、上传、转正式或最终回读出现失败/未知结果时，先读取远端真实状态，
-不得盲目重跑变更请求。
+Keep the Rolling workflow **path, name and run counter stable**. Its
+`github.run_number` is the per-repository sequence; gaps are valid and reruns keep
+the original number, PR event and SHA. There is no concurrency queue that replaces
+pending runs or cancels earlier attempts. Failed attempts do not block later merges.
+Consumers order successful releases by descriptor **sequence**, never completion
+time, `published_at` or Latest.
 
-### Draft recovery
+## Identity and artifacts
 
-The `contents: write` workflow token must be able to see drafts. A lookup failure,
-including 404, is not proof of absence. All listing pages must succeed and exactly
-one matching `tag_name` must exist before recovery; duplicate matches, prereleases,
-already-published Releases, missing/extra/duplicate assets, unfinished uploads and
-different bytes stop without writes. Partial drafts require maintainer investigation;
-the workflow does not complete, delete or replace their assets.
+Committed `package.json` and `cockpit.module.json` stay `0.0.0-dev`; no version PR,
+release label, tag push or generated source commit is needed. Development bundles
+export `buildVersion` as `dev+<shortSHA>` (unbundled source reports `dev+unknown`);
+the build prints this identity for development diagnostics.
+The isolated Actions build writes only ignored build outputs: its generated
+manifest, `dist/package.json`, receipt and bundled identity use `0.0.0-rolling.<sequence>`. The
+immutable lightweight tag `v0.0.0-rolling.<sequence>` points to the exact merge.
+SDK versioning and the integration-host pin are independent and unchanged.
 
-Recovery requires the original checked artifact for the exact tag/source/version.
-The remote tag must still resolve to that source on main; `target_commitish` is not
-source evidence because GitHub ignores it when the tag already exists. Package
-manifest, receipt, SDK identity, checksums and both downloaded asset bytes must
-match. A fresh build that produces different bytes cannot replace the draft.
-The unique Release ID and complete asset metadata are read again before publishing,
-then read and downloaded again after publication.
+Each successful Rolling contains exactly:
 
-After a create/upload/publish command fails or times out, the script performs only
-a read-only discovery for diagnostics and fails the run, even if it observes a
-complete draft or published Release. Inspect the authenticated paginated list and
-the exact Release/asset IDs before deciding whether a later run is appropriate.
-There are no mutation retries, tag moves, asset overwrites or published-Release edits.
-A single-request HTTPS transport creates drafts, uploads assets by Release ID and
-publishes by ID; it does not follow redirects or retry transport/5xx failures.
-The workflow deliberately avoids `gh release create` asset uploads, whose internal
-retry loop can repeat an uncertain upload. `gh api` is used only for reads.
-A failed final readback is not proof that publication failed. An old tag executes
-its old workflow: merging this fix does not repair or authorize rerunning historical
-tag workflows, moving tags, or publishing any existing draft.
+1. `cockpit-notification-0.0.0-rolling.<sequence>.tgz`
+2. that archive's `.sha256`
+3. `cockpit-deployment.json`
+4. `cockpit-deployment.json.sha256`
 
-After a joint deployment with the host, tag and release the accepted commit per Cockpit's [release after a joint deployment](https://github.com/waksana/cockpit/blob/main/docs/releasing.md#release-after-acceptance) policy.
+The format-2/channel-rolling deployment descriptor is byte-identical in the
+archive root and sidecar. It declares repository, tag, source SHA, product version,
+positive sequence and archive name. The archive checksum is a standalone asset,
+not a self-reference inside the archive. The build receipt inventories the
+descriptor and all package files. Both checksums, inventory, version/source/tag
+identity, sidecar equality and exact asset set are checked before and after
+publication.
 
-Historical 0.1.0 paired with Cockpit 0.2.3. Current 0.1.18 source requires
-shared-surfaces v1; see the [installation guide](installation.md) for pairing.
-Versions 0.1.16 and 0.1.17 were published under their own tags. Version 0.1.18
-prepares a fresh patch identity for the SDK migration and awaits joint-deployment
-acceptance before publication under the policy above.
-The SDK version, registry resolution and integrity are locked separately from the exact
-integration host in `tooling/integration-host.json`. Never infer host compatibility from
-SDK semver or backdate a new capability into a historical Release.
-不打入私有配置、订阅、未读数据或额外 React。许可随包内 dist/licenses 交付。
-发布不安装、不申请设备权限、不改变正在运行的服务；安装和重启需要另外授权。
+The module product is gated against source by `scripts/rolling-identity.mjs`:
+backend/module API 1; frontend API 2, UI 1, UI surface 1 and menu 1; no host intents.
+These become `module-api.v1`, `frontend-api.v2`, `ui.v1`, `uiSurface.v1`, `menu.v1`.
+Notification keeps a private version-1 `push-config.json` subscription/VAPID store
+and an in-memory unread ledger; it owns **no SQLite database or migration**.
+Empty `databases`/`migrations` are not permission to discard private data. The
+deployer must preserve the module data directory; this change neither transforms
+data nor weakens ownership/mode checks. Changed source compatibility/storage
+requirements require updating and reviewing the declaration, never guessed
+compatibility, fictional migrations or a per-version local catalog.
+
+## Publication and recovery
+
+The reusable CI checks build the exact merged source, test it and exercise the
+package through the pinned host. Publication downloads that original CI artifact;
+it does not rebuild. PR title and **full body** become Release notes, followed by
+deterministic PR/source/tag/version/sequence and asset names.
+
+All writes use the existing single-attempt HTTPS transport: create the immutable
+tag if absent, create a prerelease draft, upload all four assets, download/verify
+their exact bytes and IDs, then PATCH the same Release to `draft:false`,
+`prerelease:true`, `make_latest:false`. Rolling never claims Latest.
+That publication PATCH also appends a machine-readable identity record to the
+complete notes: original Release ID and each asset's ID, name, size and SHA-256.
+Promotion compares against this publication-time record, not merely whichever
+assets happen to exist when promotion starts. This adds no fifth asset.
+
+No write is automatically retried, including redirects, HTTP errors, timeouts or
+lost acknowledgements. An uncertain operation is observed read-only and fails
+closed; it may already have applied. Do not move/delete tags, overwrite assets,
+use `--clobber`, or start a replacement release. Inspect the original run and exact
+tag's paginated Release listing, including drafts. A separately authorized rerun
+keeps its original identity: a complete byte-identical draft may finish publication;
+a matching published Rolling is verified read-only. Partial/conflicting assets,
+changed PR metadata or moved tags reject rather than repair. The historical
+stable-release recovery script remains for explicitly authorized historical
+operations; the new workflow never calls it in stable mode.
+
+Listing is only for initial exact-tag discovery. Once a Release ID is returned
+or discovered, creation/upload/publication/promotion readback uses
+`GET releases/{id}` directly; eventually consistent lists cannot impersonate a
+missing draft. A failed direct read still fails closed and never retries a write.
+
+## Milestone promotion
+
+Only upon explicit user selection, dispatch `.github/workflows/milestone.yml`
+on `main`, supplying the same existing successful Rolling tag in both `tag` and
+`confirm_tag`. No implicit newest-tag selection is supported.
+
+The workflow checks the published release, exact tag/source, four assets,
+checksums, descriptor and inventory; it repeats metadata and byte checks before
+writing. Its only write is a PATCH to the **original Release ID** with
+`prerelease:false, make_latest:true`. It then verifies the same identity and bytes
+and the Latest endpoint. There is no build, tag/version change, asset replacement,
+title/body edit or second Release. Non-Rolling tags, drafts, missing/changed assets,
+identity races or an unconfirmed tag reject. Unknown write results are not retried.
+Replaced assets reject even when replacement happened before dispatch. Historical
+releases without this record cannot be promoted by this new entry point.
+
+## Verification and delivery boundaries
+
+Use Node/pnpm and authenticated dependencies from the [build guide](installation.md).
+Run `pnpm typecheck` and `pnpm test`; release tests cover workflow trigger/identity,
+out-of-order sequence selection, isolated failures, immutable reruns, transport
+uncertainty and promotion invariance. From a clean commit, `pnpm build`,
+`pnpm package`, and `pnpm verify:package ARCHIVE` verify development packaging.
+The Rolling CI supplies `ROLLING_SEQUENCE` consistently to build/package/verify.
+
+Report merge, Rolling publication, Milestone promotion and external deployment
+as separate facts. Merge authorization includes its automatic Rolling attempt,
+not a successful release guarantee. PR-only/no-merge work stops before that
+side effect. Release automation never installs, migrates data, restarts services
+or contacts an external deployment service; those require separate authorization.

@@ -5,6 +5,7 @@ import { DeviceBridge } from './device.ts';
 import { UnreadStore } from './store.ts';
 import type { UnreadState } from './store.ts';
 import { observeRead } from './visibility.ts';
+export { buildVersion } from '../shared/build.ts';
 
 const labels: Record<UnreadState['status'], string> = {
   empty: '未同步', refreshing: '同步中', ready: '已同步', stale: '同步失败',

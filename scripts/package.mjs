@@ -6,7 +6,7 @@ import { checkedBuild, digest } from './identity.mjs';
 
 export async function packageModule(root, output) {
   const receipt = await checkedBuild(root);
-  const manifest = JSON.parse(await readFile(join(root, 'cockpit.module.json'), 'utf8'));
+  const manifest = JSON.parse(await readFile(join(root, '.module-manifest.json'), 'utf8'));
   if (manifest.id !== receipt.product || manifest.version !== receipt.version) throw new Error('Module identity mismatch');
   for (const path of [manifest.backend, manifest.frontend.entry, manifest.frontend.worker, ...manifest.frontend.styles]) {
     if (!receipt.files.some(file => file.path === path)) throw new Error('Unbuilt module entry');
@@ -19,12 +19,24 @@ export async function packageModule(root, output) {
   const path = join(output, name);
   try {
     execFileSync('tar', ['--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner', '--hard-dereference',
-      '--transform=s/^\\.module-build\\.json$/module-build.json/', '-czf', path, 'cockpit.module.json', 'dist', 'LICENSE', '.module-build.json'],
+      '--transform=s/^\\.module-build\\.json$/module-build.json/',
+      '--transform=s/^\\.module-manifest\\.json$/cockpit.module.json/',
+      '--transform=s/^\\.module-deployment\\.json$/cockpit-deployment.json/',
+      '-czf', path, '.module-manifest.json', 'dist', 'LICENSE', '.module-build.json',
+      ...(receipt.sequence ? ['.module-deployment.json'] : [])],
     { cwd: root, stdio: 'pipe' });
     await checkedBuild(root);
     await writeFile(`${path}.sha256`, `${digest(await readFile(path))}  ${name}\n`, { flag: 'wx' });
+    if (receipt.sequence) {
+      const descriptor = await readFile(join(root, '.module-deployment.json'));
+      await writeFile(join(output, 'cockpit-deployment.json'), descriptor, { flag: 'wx' });
+      await writeFile(join(output, 'cockpit-deployment.json.sha256'),
+        `${digest(descriptor)}  cockpit-deployment.json\n`, { flag: 'wx' });
+    }
     return path;
   } catch (error) {
+    await rm(join(output, 'cockpit-deployment.json.sha256'), { force: true });
+    await rm(join(output, 'cockpit-deployment.json'), { force: true });
     await rm(`${path}.sha256`, { force: true });
     await rm(path, { force: true });
     await rmdir(output);

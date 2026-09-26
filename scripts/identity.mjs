@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse } from 'yaml';
+import { buildIdentity } from './rolling-identity.mjs';
 
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export const git = (root, args) => execFileSync('git', args, {
@@ -62,11 +63,20 @@ export async function checkedBuild(root) {
   const receipt = JSON.parse(await readFile(join(root, '.module-build.json'), 'utf8'));
   const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   if (receipt.format !== 1 || receipt.product !== 'cockpit-notification' ||
-      receipt.sourceSha !== source(root, true) || receipt.version !== metadata.version ||
+      receipt.sourceSha !== source(root, true) || receipt.version !== buildIdentity(metadata.version, receipt.sourceSha).version ||
       receipt.node !== process.versions.node ||
       JSON.stringify(receipt.sdk) !== JSON.stringify(await sdkIdentity(root)) ||
-      JSON.stringify(receipt.files) !== JSON.stringify(await inventory(root, ['cockpit.module.json', 'dist', 'LICENSE']))) {
+      JSON.stringify(receipt.files) !== JSON.stringify(await buildInventory(root, Boolean(receipt.sequence)))) {
     throw new Error('Build output is stale or modified');
   }
+
   return receipt;
+}
+
+export async function buildInventory(root, rolling) {
+  return (await inventory(root, ['.module-manifest.json', 'dist', 'LICENSE',
+    ...(rolling ? ['.module-deployment.json'] : [])])).map(file => ({
+    ...file, path: file.path === '.module-manifest.json' ? 'cockpit.module.json' :
+      file.path === '.module-deployment.json' ? 'cockpit-deployment.json' : file.path,
+  })).sort((a, b) => a.path.localeCompare(b.path, 'en'));
 }

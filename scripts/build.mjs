@@ -2,13 +2,24 @@ import { build } from 'esbuild';
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inventory, sdkIdentity, source } from './identity.mjs';
+import { buildInventory, git, sdkIdentity, source } from './identity.mjs';
+import { buildIdentity, deploymentDescriptor } from './rolling-identity.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const node = (await readFile(join(root, '.node-version'), 'utf8')).trim();
 if (node !== process.versions.node) throw new Error(`Build requires Node ${node}`);
 const sdk = await sdkIdentity(root);
 const before = source(root);
+const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+const identity = buildIdentity(metadata.version, before ?? git(root, ['rev-parse', 'HEAD']));
+const manifest = JSON.parse(await readFile(join(root, 'cockpit.module.json'), 'utf8'));
+if (manifest.version !== metadata.version) throw new Error('Product versions differ');
+await writeFile(join(root, '.module-manifest.json'), `${JSON.stringify({ ...manifest, version: identity.version }, null, 2)}\n`);
+if (identity.sequence) {
+  if (!before) throw new Error('Rolling requires clean committed source');
+  await writeFile(join(root, '.module-deployment.json'),
+    `${JSON.stringify(await deploymentDescriptor(root, identity), null, 2)}\n`);
+} else await rm(join(root, '.module-deployment.json'), { force: true });
 await rm(join(root, 'dist'), { recursive: true, force: true });
 await mkdir(join(root, 'dist/licenses'), { recursive: true });
 const configurations = [
@@ -20,6 +31,7 @@ const configurations = [
 const packageRoots = new Map();
 for (const { entry, output, ...options } of configurations) {
   const result = await build({ absWorkingDir: root, entryPoints: [entry], outfile: output, bundle: true,
+    define: { __NOTIFICATION_BUILD__: JSON.stringify(identity.displayVersion) },
     target: 'es2023', sourcemap: false, legalComments: 'inline', metafile: true, ...options });
   if (Object.keys(result.metafile.inputs).some(path =>
     /node_modules\/(?:react(?:-dom)?|zod|@github\/copilot(?:-sdk)?|@cockpit\/[^/]+)\//.test(path) ||
@@ -55,11 +67,12 @@ for (const [name, directory] of packageRoots) {
   }
 }
 await copyFile(join(root, 'src/web/styles.css'), join(root, 'dist/web/styles.css'));
-await writeFile(join(root, 'dist/package.json'), '{"type":"module"}\n');
+await writeFile(join(root, 'dist/package.json'),
+  `${JSON.stringify({ name: metadata.name, version: identity.version, type: 'module' })}\n`);
 if (source(root) !== before) throw new Error('Source changed during build');
 if (JSON.stringify(await sdkIdentity(root)) !== JSON.stringify(sdk)) throw new Error('SDK changed during build');
-const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-const receipt = { format: 1, product: metadata.name, version: metadata.version, sourceSha: before,
+const receipt = { format: 1, product: metadata.name, ...identity, sourceSha: before,
   sdk, node, platform: process.platform, arch: process.arch,
-  files: await inventory(root, ['cockpit.module.json', 'dist', 'LICENSE']) };
+  files: await buildInventory(root, Boolean(identity.sequence)) };
 await writeFile(join(root, '.module-build.json'), `${JSON.stringify(receipt, null, 2)}\n`);
+console.log(`Cockpit Notification ${identity.displayVersion}`);
