@@ -26,6 +26,9 @@ export async function verifyRollingAssets(directory, { repository, tag, sourceSh
       `${digest(bytes)}  ${name}\n`, 'Checksum mismatch');
   }
   const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8', maxBuffer: 1024 * 1024 }).trim().split('\n');
+  const types = execFileSync('tar', ['-tvzf', archive], { encoding: 'utf8', maxBuffer: 1024 * 1024 }).trim().split('\n');
+  assert.ok(types.every(entry => entry.startsWith('-') || entry.startsWith('d')),
+    'Archive must contain only regular files and directories');
   assert.equal(new Set(entries).size, entries.length);
   assert.ok(entries.every(name => !name.startsWith('/') && !name.includes('\\') &&
     !name.split('/').some(part => part === '.' || part === '..')));
@@ -66,6 +69,8 @@ export async function verifyRollingAssets(directory, { repository, tag, sourceSh
   assert.equal(manifest.id, product.id);
   assert.equal(manifest.version, identity.version);
   assert.ok(manifest.apiVersion >= product.hostApi.min && manifest.apiVersion <= product.hostApi.max);
+  assert.ok(manifest.frontend && typeof manifest.frontend === 'object');
+  assert.ok(Array.isArray(manifest.frontend.styles));
   const expected = new Set(['module-build.json']);
   for (const file of receipt.files) {
     assert.ok(typeof file.path === 'string' && !file.path.startsWith('/') && !file.path.includes('\\') &&
@@ -77,6 +82,14 @@ export async function verifyRollingAssets(directory, { repository, tag, sourceSh
     assert.equal(digest(data), file.sha256);
   }
   assert.ok(expected.has('cockpit-deployment.json') && expected.has('cockpit.module.json'));
+  for (const entry of [manifest.backend, manifest.frontend.entry, manifest.frontend.worker,
+    ...manifest.frontend.styles]) {
+    assert.ok(typeof entry === 'string' && entry.startsWith('dist/') &&
+      !/[\\\x00-\x1f\x7f]/.test(entry) &&
+      entry.split('/').every(part => part && part !== '.' && part !== '..') &&
+      expected.has(entry) && entries.includes(entry),
+    `Missing or invalid runtime entrypoint: ${entry}`);
+  }
   assert.deepEqual(entries.filter(name => !name.endsWith('/')).sort(), [...expected].sort());
   return descriptor;
 }

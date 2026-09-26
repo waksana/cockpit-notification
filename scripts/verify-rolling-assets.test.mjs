@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const identity = rollingIdentity(18, 'a'.repeat(40));
 const repository = 'waksana/cockpit-notification';
 
-async function fixture(t) {
+async function fixture(t, { missingEntrypoints = false } = {}) {
   const base = await mkdtemp(resolve('node_modules/.rolling-archive-test-'));
   t.after(() => rm(base, { recursive: true }));
   const contents = join(base, 'contents'), output = join(base, 'output');
@@ -21,8 +21,16 @@ async function fixture(t) {
   const descriptor = await deploymentDescriptor(root, identity);
   const manifest = { ...JSON.parse(await readFile(join(root, 'cockpit.module.json'))), version: identity.version };
   const files = { 'cockpit-deployment.json': JSON.stringify(descriptor),
-    'cockpit.module.json': JSON.stringify(manifest), 'dist/index.js': 'export const synthetic = true;' };
-  await mkdir(join(contents, 'dist'));
+    'cockpit.module.json': JSON.stringify(manifest),
+    ...(missingEntrypoints ? {} : {
+      'dist/server/index.js': 'export const synthetic = true;',
+      'dist/web/index.js': 'export const synthetic = true;',
+      'dist/worker/index.js': 'const synthetic = true;',
+      'dist/web/styles.css': '.synthetic {}',
+    }) };
+  for (const directory of ['dist/server', 'dist/web', 'dist/worker']) {
+    await mkdir(join(contents, directory), { recursive: true });
+  }
   const receipt = { format: 1, product: manifest.id, ...identity, files: Object.entries(files).map(
     ([path, data]) => ({ path, bytes: Buffer.byteLength(data), sha256: digest(data) })) };
   for (const [name, data] of Object.entries({ ...files, 'module-build.json': JSON.stringify(receipt) })) {
@@ -60,4 +68,9 @@ test('missing asset and changed archive bytes prevent promotion verification', a
   await assert.rejects(verify(), /Checksum/);
   await rm(join(output, 'cockpit-deployment.json.sha256'));
   await assert.rejects(verify());
+});
+
+test('self-consistent archive and checksums cannot omit declared runtime entrypoints', async t => {
+  const { verify } = await fixture(t, { missingEntrypoints: true });
+  await assert.rejects(verify(), /Missing or invalid runtime entrypoint/);
 });
