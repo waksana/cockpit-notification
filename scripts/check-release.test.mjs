@@ -15,7 +15,8 @@ test('Rolling workflow binds every merged PR to exact source without filtering o
     assert.ok(workflow.includes(text), text);
   }
   assert.doesNotMatch(workflow, /releases\/tags\/|gh release (?:edit|download)/);
-  assert.doesNotMatch(workflow, /--clobber|pnpm (?:build|package)|pull_request_target|secrets\./);
+  assert.doesNotMatch(workflow, /--clobber|pnpm (?:build|package)|secrets\.|pull_request\.head/);
+  assert.match(workflow, /pull_request_target:/);
   assert.doesNotMatch(workflow, /\nconcurrency:|paths:|paths-ignore:|labels|run_attempt|push:/);
   for (const [, use] of workflow.matchAll(/uses:\s+([^\s]+)/g)) {
     if (!use.startsWith('./')) assert.match(use, /^[\w/-]+@[a-f0-9]{40}$/);

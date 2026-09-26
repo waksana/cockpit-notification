@@ -1,7 +1,9 @@
 # Identity authority: keep this workflow's name and path stable. Do not reset its run counter.
 name: Rolling
 on:
-  pull_request:
+  # Base-repository token supports merged fork PRs. Only the accepted merge SHA
+  # runs; never execute an unmerged head in this trusted workflow.
+  pull_request_target:
     branches: [main]
     types: [closed]
 

@@ -9,6 +9,11 @@ documentation and chores, independently runs `.github/workflows/release.yml`
 merges are not published. Historical tags, Releases and assets remain untouched;
 the old tag-push publication trigger is retired.
 
+The trigger uses the trusted base-repository `pull_request_target: closed`
+context so merged fork PRs also receive publication permissions. Jobs are gated
+on `merged == true` and check out only the accepted merge SHA, never an unmerged
+PR head; the publication gate also checks that SHA belongs to main history.
+
 Keep the Rolling workflow **path, name and run counter stable**. Its
 `github.run_number` is the per-repository sequence; gaps are valid and reruns keep
 the original number, PR event and SHA. There is no concurrency queue that replaces
