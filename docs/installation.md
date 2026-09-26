@@ -31,6 +31,24 @@ an older archive nor a source ZIP is a published Release.
 
 ## Build from source
 
+### Worktree setup
+
+A new checkout or worktree does not inherit ignored local files. When its
+dependencies are needed and not already prepared, follow the authenticated,
+frozen installation below in that worktree. Plain documentation edits do not
+require installing dependencies. Keep each worktree's `node_modules` and
+dependency graph independent; do not copy or symlink the whole directory from
+another worktree or a running installation.
+
+pnpm automatically reuses package files from its content-addressable store,
+using hard links or clones on compatible filesystems rather than sharing the
+mutable dependency directory. `pnpm store path` shows the selected store.
+Cache misses may still download packages, and crossing filesystems may require
+copies. Keep the existing store configuration and lockfile; no forced `--offline`
+mode or global virtual store is needed. See [pnpm's store explanation](https://pnpm.io/10.x/faq).
+
+### Authenticated build
+
 Use Node **24.20.0**, pnpm **10.34.5**, TypeScript **5.9.3** and NodeNext resolution.
 The supported SDK peers are Node types 22-25 and matching React/types 18 or 19;
 this repository locks its own type dependencies and checks declarations without

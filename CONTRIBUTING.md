@@ -29,6 +29,11 @@ Current source is 0.1.18 and requires shared-surfaces v1; see the [installation 
 
 ## 隔离与数据
 
+For a new checkout/worktree, follow the
+[independent dependency setup](docs/installation.md#worktree-setup) and existing
+authenticated build instructions. Plain documentation changes need no dependency
+install or product build.
+
 后续验证只使用合成 session、文件、工作区、通知和受控 provider。
 不得读取真实 native home、会话历史、凭据、推送订阅或其他人的业务数据作为 fixture。
 不把实验指向生产服务，不给真实 session 发测试 prompt 或回答 ask。
