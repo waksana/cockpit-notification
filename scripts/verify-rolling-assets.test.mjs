@@ -22,6 +22,7 @@ async function fixture(t, { missingEntrypoints = false } = {}) {
   const manifest = { ...JSON.parse(await readFile(join(root, 'cockpit.module.json'))), version: identity.version };
   const files = { 'cockpit-deployment.json': JSON.stringify(descriptor),
     'cockpit.module.json': JSON.stringify(manifest),
+    'dist/package.json': JSON.stringify({ name: manifest.id, version: identity.version, type: 'module' }),
     ...(missingEntrypoints ? {} : {
       'dist/server/index.js': 'export const synthetic = true;',
       'dist/web/index.js': 'export const synthetic = true;',

@@ -45,6 +45,8 @@ export async function verifyPackage(root, archive, sourceSha = git(root, ['rev-p
   for (const name of names.filter(name => !name.endsWith('/'))) assert.ok(expected.delete(name), `Unexpected archive file: ${name}`);
   assert.equal(expected.size, 0);
   if (receipt.sequence) {
+    assert.deepEqual(JSON.parse(read('dist/package.json')),
+      { name: manifest.id, version: manifest.version, type: 'module' });
     const embedded = read('cockpit-deployment.json');
     const sidecar = await readFile(join(resolve(archive, '..'), 'cockpit-deployment.json'));
     assert.deepEqual(embedded, sidecar, 'Deployment sidecar differs from archive');

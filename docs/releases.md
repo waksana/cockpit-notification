@@ -25,9 +25,10 @@ time, `published_at` or Latest.
 
 Committed `package.json` and `cockpit.module.json` stay `0.0.0-dev`; no version PR,
 release label, tag push or generated source commit is needed. Development bundles
-export `buildVersion` as `dev+<shortSHA>` (unbundled source reports `dev+unknown`).
+export `buildVersion` as `dev+<shortSHA>` (unbundled source reports `dev+unknown`);
+the build prints this identity for development diagnostics.
 The isolated Actions build writes only ignored build outputs: its generated
-manifest, receipt and bundled identity use `0.0.0-rolling.<sequence>`. The
+manifest, `dist/package.json`, receipt and bundled identity use `0.0.0-rolling.<sequence>`. The
 immutable lightweight tag `v0.0.0-rolling.<sequence>` points to the exact merge.
 SDK versioning and the integration-host pin are independent and unchanged.
 

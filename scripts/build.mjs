@@ -67,10 +67,12 @@ for (const [name, directory] of packageRoots) {
   }
 }
 await copyFile(join(root, 'src/web/styles.css'), join(root, 'dist/web/styles.css'));
-await writeFile(join(root, 'dist/package.json'), '{"type":"module"}\n');
+await writeFile(join(root, 'dist/package.json'),
+  `${JSON.stringify({ name: metadata.name, version: identity.version, type: 'module' })}\n`);
 if (source(root) !== before) throw new Error('Source changed during build');
 if (JSON.stringify(await sdkIdentity(root)) !== JSON.stringify(sdk)) throw new Error('SDK changed during build');
 const receipt = { format: 1, product: metadata.name, ...identity, sourceSha: before,
   sdk, node, platform: process.platform, arch: process.arch,
   files: await buildInventory(root, Boolean(identity.sequence)) };
 await writeFile(join(root, '.module-build.json'), `${JSON.stringify(receipt, null, 2)}\n`);
+console.log(`Cockpit Notification ${identity.displayVersion}`);

@@ -68,6 +68,8 @@ export async function verifyRollingAssets(directory, { repository, tag, sourceSh
   for (const key of ['version', 'sourceSha', 'sequence']) assert.equal(receipt[key], identity[key]);
   assert.equal(manifest.id, product.id);
   assert.equal(manifest.version, identity.version);
+  assert.deepEqual(JSON.parse(read('dist/package.json')),
+    { name: manifest.id, version: identity.version, type: 'module' });
   assert.ok(manifest.apiVersion >= product.hostApi.min && manifest.apiVersion <= product.hostApi.max);
   assert.ok(manifest.frontend && typeof manifest.frontend === 'object');
   assert.ok(Array.isArray(manifest.frontend.styles));
