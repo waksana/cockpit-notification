@@ -80,7 +80,7 @@ async function fixture(t, options = {}) {
         if (options.lookupError || (options.finalReadError && state.writes.includes('publish'))) {
           throw new Error('HTTP 404: synthetic lookup failure');
         }
-        if (options.disappear && state.lists > 1) return encode([[]]);
+        if (options.staleList && state.lists > 1) throw new Error('Do not rediscover a known Release ID');
         // Put the exact tag on a later page; near matches must not count.
         const pages = [[{ ...draft, id: 1, tag_name: `${tag}0` }],
           state.release ? [state.release] : []];
@@ -91,6 +91,8 @@ async function fixture(t, options = {}) {
       return encode(state.assets.length ? state.assets.map(asset => [asset]) : [[]]);
     }
     if (endpoint === `${base}/42`) {
+      if (options.disappear) throw new Error('Release disappeared');
+      if (options.finalReadError && state.writes.includes('publish')) throw new Error('HTTP 404: synthetic direct lookup failure');
       return encode(options.changedId ? { ...state.release, id: 43 } : state.release);
     }
     const index = names.findIndex((_, i) => endpoint === `${base}/assets/${100 + i}`);
@@ -146,6 +148,16 @@ test('a complete existing draft resumes with no create or upload', async t => {
   assert.equal(state.verifications.length, 3);
 });
 
+for (const absent of [true, false]) {
+  test(`known Release ID bypasses stale listing (${absent ? 'new draft' : 'existing draft'})`, async t => {
+    const { state, run } = await fixture(t, { absent, rolling: true, staleList: true });
+    await run();
+    assert.equal(state.lists, 1, 'Discovery is only needed before an ID is known');
+    assert.equal(state.writes.filter(write => write === 'create').length, absent ? 1 : 0);
+    assert.equal(state.writes.filter(write => write === 'publish').length, 1);
+  });
+}
+
 for (const [label, options, expected] of [
   ['published', { release: { draft: false } }, /already published/],
   ['prerelease', { release: { prerelease: true } }, /Prerelease/],
@@ -199,7 +211,8 @@ for (const [label, options, writes] of [
     assert.deepEqual(state.writes, writes);
     const lastWrite = state.calls.findLastIndex(args => args[0] === 'write');
     assert.equal(state.calls.length, lastWrite + 2, 'Only one diagnostic list request follows the failed write');
-    assert.ok(state.calls.at(-1).includes('--paginate'));
+    assert.equal(state.calls.at(-1)[1],
+      writes.length === 1 && writes[0] === 'create' ? `${base}?per_page=100` : `${base}/42`);
   });
 }
 

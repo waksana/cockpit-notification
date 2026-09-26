@@ -53,6 +53,7 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
   const archive = `cockpit-notification-${tag.slice(1)}.tgz`;
   const names = [archive, `${archive}.sha256`,
     ...(rolling ? ['cockpit-deployment.json', 'cockpit-deployment.json.sha256'] : [])].sort();
+  let knownId;
   const json = async args => JSON.parse((await gh(['api', ...args])).toString());
   const pages = async endpoint => {
     const result = await json([`${endpoint}?per_page=100`, '--paginate', '--slurp']);
@@ -78,9 +79,8 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
     }
   };
   const snapshot = async (id, draft) => {
-    const selected = await discover();
-    assert.ok(selected, 'Release disappeared');
-    checkMetadata(selected, draft, id);
+    // Listing can lag creation/publication. Once selected, the ID endpoint owns
+    // readback; absence there is an error, never permission to create again.
     const release = await json([`${base}/${id}`]);
     checkMetadata(release, draft, id);
     const assets = await pages(`${base}/${id}/assets`);
@@ -103,7 +103,7 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
       // A failed command may already have changed GitHub. Observe, never retry.
       let observation;
       try {
-        const remote = await discover();
+        const remote = knownId === undefined ? await discover() : await json([`${base}/${knownId}`]);
         observation = remote ? `Release id=${remote.id}, draft=${remote.draft}` : 'no exact-tag Release observed';
       } catch (lookupError) {
         observation = `readback also failed: ${lookupError.message}`;
@@ -116,6 +116,7 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
   let release = await discover();
   if (release) {
     checkMetadata(release, rolling ? release.draft : true);
+    knownId = release.id;
   } else {
     const body = Buffer.from(JSON.stringify({
       tag_name: tag, target_commitish: sha, draft: true, prerelease: Boolean(rolling),
@@ -126,8 +127,8 @@ export async function publishRelease({ repository, tag, sha, directory, root, gh
     const created = JSON.parse((await mutate(() =>
       write('api.github.com', `/${base}`, body, 'application/json'))).toString());
     checkMetadata(created, true);
-    release = await discover();
-    assert.ok(release, 'Created draft could not be discovered; inspect remote state');
+    knownId = created.id;
+    release = await json([`${base}/${knownId}`]);
     checkMetadata(release, true, created.id);
     assert.deepEqual(await pages(`${base}/${release.id}/assets`), [], 'New draft already has assets');
     for (const name of names) {

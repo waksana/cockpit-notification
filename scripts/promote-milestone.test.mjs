@@ -23,11 +23,15 @@ async function fixture(t, options = {}) {
   const read = args => {
     const path = args[0];
     if (path === `${base}?per_page=100`) {
-      state.snapshots++;
-      if (options.changeMetadata && state.snapshots === 2) state.assets[0].id++;
+      assert.equal(state.snapshots, 0, 'Known release must not be rediscovered through a lagging list');
       return json([[release]]);
     }
-    if (path === `${base}/4` || path === `${base}/latest`) return json(release);
+    if (path === `${base}/4`) {
+      state.snapshots++;
+      if (options.changeMetadata && state.snapshots === 2) state.assets[0].id++;
+      return json(release);
+    }
+    if (path === `${base}/latest`) return json(release);
     if (path === `repos/${repository}/git/ref/tags/${tag}`) return json({
       ref: `refs/tags/${tag}`, object: { type: 'commit', sha },
     });

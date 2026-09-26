@@ -19,10 +19,15 @@ export async function promoteMilestone({ repository, tag, confirmation, root,
     assert.ok(Array.isArray(result) && result.every(Array.isArray));
     return result.flat();
   };
+  let selectedId;
   const snapshot = async () => {
-    const matches = (await pages(base)).filter(release => release.tag_name === tag);
-    assert.equal(matches.length, 1, 'Expected exactly one existing Rolling Release');
-    const release = await json([`${base}/${matches[0].id}`]);
+    if (selectedId === undefined) {
+      const matches = (await pages(base)).filter(release => release.tag_name === tag);
+      assert.equal(matches.length, 1, 'Expected exactly one existing Rolling Release');
+      selectedId = matches[0].id;
+    }
+    const release = await json([`${base}/${selectedId}`]);
+    assert.equal(release.id, selectedId, 'Selected Release ID changed');
     assert.equal(release.tag_name, tag);
     assert.equal(release.draft, false, 'Only a published Rolling can be promoted');
     assert.ok(Number.isSafeInteger(release.id) && release.id > 0);

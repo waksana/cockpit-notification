@@ -81,6 +81,11 @@ changed PR metadata or moved tags reject rather than repair. The historical
 stable-release recovery script remains for explicitly authorized historical
 operations; the new workflow never calls it in stable mode.
 
+Listing is only for initial exact-tag discovery. Once a Release ID is returned
+or discovered, creation/upload/publication/promotion readback uses
+`GET releases/{id}` directly; eventually consistent lists cannot impersonate a
+missing draft. A failed direct read still fails closed and never retries a write.
+
 ## Milestone promotion
 
 Only upon explicit user selection, dispatch `.github/workflows/milestone.yml`
