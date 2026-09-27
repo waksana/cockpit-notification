@@ -22,8 +22,8 @@ importers:
         specifier: 3.6.4
         version: 3.6.4
       '@waksana/cockpit-module-sdk':
-        specifier: 0.2.0
-        version: 0.2.0(@types/node@25.9.5)(@types/react@19.2.18)(react@19.3.0)
+        specifier: 0.3.0
+        version: 0.3.0(@types/node@25.9.5)(@types/react@19.2.18)(react@19.3.0)
       esbuild:
         specifier: 0.27.3
         version: 0.27.3
@@ -201,8 +201,8 @@ packages:
   '@types/web-push@3.6.4':
     resolution: {integrity: sha512-GnJmSr40H3RAnj0s34FNTcJi1hmWFV5KXugE0mYWnYhgTAHLJ/dJKAwDmvPJYMke0RplY2XE9LnM4hqSqKIjhQ==}
 
-  '@waksana/cockpit-module-sdk@0.2.0':
-    resolution: {integrity: sha512-VzzgNf3wLt6Qca9NwP+2M/7fZkPLEYb5BmQLdbcuZeN3/tdZJgdZ8ukjdw4NaQOeQlIfBM3W52o0JRMi9D+QXg==, tarball: https://npm.pkg.github.com/download/@waksana/cockpit-module-sdk/0.2.0/8faa45c8636b488f9309bf957bee81fcf2841ea2}
+  '@waksana/cockpit-module-sdk@0.3.0':
+    resolution: {integrity: sha512-YvPPlhikPSMazUgQoWZFg32pguFFV/l4kfycF0nB8jbX2xZYGMQru8/4L2L+y9YqLtu7HwpRncNgP35sagzoKQ==, tarball: https://npm.pkg.github.com/download/@waksana/cockpit-module-sdk/0.3.0/0d5294b45de468c1b73fdf8e006202828909929b}
     peerDependencies:
       '@types/node': '>=22 <26'
       '@types/react': '>=18 <20'
@@ -387,7 +387,7 @@ snapshots:
     dependencies:
       '@types/node': 25.9.5
 
-  '@waksana/cockpit-module-sdk@0.2.0(@types/node@25.9.5)(@types/react@19.2.18)(react@19.3.0)':
+  '@waksana/cockpit-module-sdk@0.3.0(@types/node@25.9.5)(@types/react@19.2.18)(react@19.3.0)':
     dependencies:
       '@types/node': 25.9.5
       '@types/react': 19.2.18

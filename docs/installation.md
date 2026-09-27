@@ -1,15 +1,13 @@
 # 构建、配套宿主与安装
 
 **Current source `0.0.0-dev` requires settings v1 and shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
-The settings integration is not release-ready yet: its public SDK must first be
-published and verified, then its dependency/lockfile and paired-host integration
-must pass the required checks.
-The retained baseline dependency is `@waksana/cockpit-module-sdk@0.2.0` from
-`https://npm.pkg.github.com`; this older SDK does not supply settings v1.
+The build consumes published `@waksana/cockpit-module-sdk@0.3.0` from
+`https://npm.pkg.github.com`, with its exact registry resolution and integrity
+pinned in `package.json` and `pnpm-lock.yaml`.
 The supporting integration host is `929b86cf0d46a0d83ab9652c27d3c92bcb3c9e7d`,
 recorded in [`tooling/integration-host.json`](../tooling/integration-host.json).
-This immutable host pin supplies settings v1; successful consumer integration
-still must be verified after the SDK dependency update.
+This immutable host pin supplies settings v1; CI separately verifies the packaged
+consumer against it using the notification repository's own registry access.
 The build never exports types from a host checkout.
 SDK semver is independent of host versions and does not prove host compatibility.
 会话计数复用 `ck-badge` 的基础排版，但保留计数专用圆形/胶囊几何、防压缩、
