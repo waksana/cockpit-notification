@@ -43,7 +43,7 @@ test('version injection leaves committed development identity and includes full 
 
 test('source-derived module deployment contract declares real frontend capabilities and no fictional database', async () => {
   const product = await moduleProduct(root);
-  assert.deepEqual(product.requiresCapabilities, ['module-api.v1', 'frontend-api.v2', 'ui.v1', 'uiSurface.v1', 'menu.v1']);
+  assert.deepEqual(product.requiresCapabilities, ['module-api.v1', 'frontend-api.v2', 'ui.v1', 'uiSurface.v1', 'settings.v1']);
   assert.deepEqual(product.hostApi, { min: 1, max: 1 });
   assert.deepEqual(product.databases, []);
   assert.deepEqual(product.migrations, []);

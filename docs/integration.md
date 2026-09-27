@@ -1,6 +1,6 @@
 # 模块与宿主协作边界
 
-**当前源码对所有模型采用无工具回复直接入账（不看 phase），沿用 0.1.13 起的正文内未读底色、独立菜单项注册、增量同步与精简入口。** 0.1.0 的契约见其 tag；
+**Current source keeps tool-free reply admission, in-body unread highlighting and incremental synchronization. Device preferences now use the host's unified settings boundary, not a global menu action.** Historical contracts remain in their tags.
 通用组件接入来自已合入的 [waksana/cockpit#26](https://github.com/waksana/cockpit/pull/26)，
 通用 SSE payload 通路来自 [waksana/cockpit#30](https://github.com/waksana/cockpit/pull/30)；
 The build contract is the exact registry SDK dependency in `package.json` and
@@ -17,8 +17,8 @@ version alone proves that the required capabilities exist.
 | 推送订阅、投递记录、通知与消息关联 | Notification 模块 |
 | Chat 正文渲染、分页与唯一滚动控制 | 本体 |
 | 基础消息、会话状态组件 | 本体公开组件契约 |
-| 菜单项注册、渲染、键盘、关闭与焦点 | 本体通用菜单契约；开关状态与动作由模块声明 |
-| 注册 state 服务、菜单与组件 middleware | 本体统一 Web 运行时，业务实现属于模块 |
+| Settings dialog, default-model content, About, focus and section separation | Host; device preference state and actions belong to the module |
+| State service and component middleware registration | Host Web runtime; business implementations belong to the module |
 | 标记何时出现、读后确认与通知策略 | 模块 |
 | Service Worker 的稳定 URL、资源校验和限定作用域 | 本体公开机制 |
 | worker 注册、更新、设备订阅和通知权限交互 | 模块；生命周期受浏览器规则约束 |
@@ -42,11 +42,20 @@ version alone proves that the required capabilities exist.
 - Web API v2：context 与返回声明都要求 `apiVersion: 2`，旧 Web 插口不保留兼容层。
 - `context.state.register` 注册已有 UnreadStore 与 DeviceBridge 等共享状态服务；
   不按消息重复创建 store 或发 HTTP，不把未读写入本体原生数据。
-- `components` 仅注册 message/sessionStatus middleware，
-  使用基础 props 的身份、完成事实、正文 bodyRef、children/adornment 组合原组件。
-- `menus` 注册一个 `menu: 'global'` 的 `notification-toggle`，明确要求 `context.menuVersion === 1`。
-  `getState` 读取已有 DeviceBridge，`subscribe` 直接使用其订阅；`onSelect` 重新读取状态并调用 enable/disable。
-  不复制原生 store、不自建菜单运行时、不包装完整菜单或注册任意页面。
+- `components` registers message, session-status and settings middleware.
+  Message identity, completion, body refs and existing children/adornments are preserved.
+- Settings require `context.settingsVersion === 1` before any contribution is
+  registered. The public `SettingsProps` extends native section
+  `React.HTMLAttributes<HTMLElement>` with readonly `children: React.ReactNode`.
+  The module returns `<><Base {...props} /><DeviceSettings /></>`: Base is the
+  real default-model section, with its class, accessibility attributes, events
+  and children preserved. The module's section is a following sibling, never
+  inserted into `Base.children`, so a notification failure cannot be attributed
+  to a healthy peer middleware. The host renders About afterward.
+  `DeviceSettings` is one named semantic section, not another dialog, scrolling
+  region, placeholder boundary or arbitrary route.
+- No `menus` contribution or `menuVersion` requirement remains. Unsupported
+  settings hosts are rejected explicitly; the old notification menu is not a fallback.
 - `context.state.host` 提供当前会话、前后台和连接状态；`onEvent` 接收本模块 payload。
 - 后端 `controlEvents` 观察已有会话控制投影；`publish(payload)` 复用已有 SSE，
   不增加 graceful 等待。
@@ -70,13 +79,20 @@ version alone proves that the required capabilities exist.
 正文内绘制避免 `content-visibility: auto` 裁剪越界装饰；不修改宿主、不退出其性能优化。
 计数数字属于附加展示，不挤掉已有会话标题或原生待回答状态。
 Middleware 增强的是 React 组件，不为它增加 HTML 包装层或空占位容器。
-菜单注册声明本设备通知开关，由宿主保留原生条目并统一处理排序、分隔、动态禁用、关闭、键盘和焦点；
-不增加主界面铃铛、总数、独立设置面板或管理页通知入口。
+The host owns settings entry, dialog lifecycle, focus, section layout and dividers.
+The module owns its native switch and business-only `cn-*` layout, using public
+`ck-*` controls and `--ck-*` tokens. It adds no main-screen bell, total,
+independent settings dialog or management-header entry.
 不在原组件旁边另插一个默认内容为空的 globalActions 位置。
 正文、卡片与输入框的视觉几何保持不变，原有 refs/children/adornment/actions 与可访问性属性必须组合保留。
-菜单项与服务、middleware 共用模块作用域和 ID 校验；停用时由宿主撤销订阅和入口。
-已接纳的设备操作不因菜单正常关闭而取消，模块停止则由既有 signal/dispose 使晚结果失效。
-宿主同步调用动作以保留浏览器授权所需的用户手势；显示禁用不替代 DeviceBridge 的并发和真实环境条件。
+Settings middleware and state services share the host's module-scoped registration
+and disposal. The section observes the existing `DeviceBridge`; it does not own,
+recreate or cancel that service when the dialog closes. Accepted operations remain
+bound to that device/module instance. Module stop prevents new actions and late
+state writes; an accepted operation's later failure still has a global fallback.
+The click handler calls the bridge synchronously, preserving the browser permission
+gesture, and rechecks current status before acting. Native disabled presentation
+does not replace the bridge's concurrency and lifecycle guards.
 
 模块依据 message 的 bodyRef 观察真实裁剪、遮挡和同一 block 的连续可见时间；宿主不决定“已读”。
 任意部分持续可见即可，滚动与可见内容更替不重置，不要求底部、完整消息或末尾。

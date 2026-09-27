@@ -10,6 +10,11 @@ const entry = `${scope}worker.js`;
 const key = Uint8Array.from({ length: 65 }, (_, index) => index === 0 ? 4 : 0);
 const vapidPublicKey = Buffer.from(key).toString('base64url');
 const state: Snapshot = { generation: 'generation-a', revision: 0, total: 0, complete: true, sessions: [] };
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release: () => release() };
+}
 function fixture(t: { after(fn: () => void): void }) {
   const restorers: (() => void)[] = [];
   const replace = (name: string, value: unknown) => {
@@ -171,7 +176,7 @@ for (const operation of ['enable', 'disable'] as const) {
     assert.equal(after.subscribed, operation === 'enable');
     release();
     await bootstrapping;
-    assert.deepEqual(f.bridge.getSnapshot(), after);
+    assert.deepEqual(f.bridge.getSnapshot(), { ...after, initializing: false });
   });
 }
 
@@ -458,4 +463,201 @@ test('disposing while the permission gesture is pending cannot later install or 
   assert.equal(f.counts().registrations, 0);
   assert.equal(f.counts().subscriptions, 0);
   assert.equal(f.requests.length, 0);
+});
+
+test('device initialization is explicit and settles without requesting permission', async t => {
+  const f = fixture(t);
+  const pending = gate();
+  const lookup = navigator.serviceWorker.getRegistration.bind(navigator.serviceWorker);
+  navigator.serviceWorker.getRegistration = async clientURL => {
+    await pending.promise;
+    return lookup(clientURL);
+  };
+  assert.equal(f.bridge.getSnapshot().initializing, true);
+  const bootstrap = f.bridge.bootstrap();
+  assert.equal(f.bridge.getSnapshot().initializing, true);
+  pending.release();
+  await bootstrap;
+  assert.equal(f.bridge.getSnapshot().initializing, false);
+  assert.equal(f.bridge.getSnapshot().busy, false);
+  assert.equal(f.counts().permissionRequests, 0);
+});
+
+test('the permission gesture is synchronous and duplicate enable or disable is ignored while it is pending', async t => {
+  const f = fixture(t);
+  f.setInstalled(false);
+  await f.bridge.bootstrap();
+  let requested = 0;
+  let release!: (permission: NotificationPermission) => void;
+  f.replace('Notification', {
+    permission: 'default',
+    requestPermission: () => {
+      requested++;
+      return new Promise<NotificationPermission>(resolve => { release = resolve; });
+    },
+  });
+  const enabling = f.bridge.enable();
+  assert.equal(requested, 1, 'permission starts inside the caller gesture, not an effect or delayed callback');
+  assert.equal(f.bridge.getSnapshot().busy, true);
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  await Promise.all([f.bridge.enable(), f.bridge.disable()]);
+  assert.equal(requested, 1);
+  assert.equal(f.counts().registrations, 0);
+  release('granted');
+  await enabling;
+  assert.equal(f.bridge.getSnapshot().busy, false);
+  assert.equal(f.bridge.getSnapshot().registered, true);
+  assert.equal(f.requests.filter(request => request.init?.method === 'POST').length, 1);
+});
+
+for (const method of ['POST', 'DELETE'] as const) {
+  test(`${method} acceptance does not change confirmed registration until the response succeeds`, async t => {
+    const f = fixture(t);
+    f.setSubscription(f.createSubscription());
+    f.setRegistered(method === 'DELETE');
+    await f.bridge.bootstrap();
+    const pending = gate();
+    const started = gate();
+    const request = f.context.request;
+    f.context.request = async (path, init) => {
+      if (init?.method === method) { started.release(); await pending.promise; }
+      return request(path, init);
+    };
+    const operation = method === 'POST' ? f.bridge.enable() : f.bridge.disable();
+    await started.promise;
+    assert.equal(f.bridge.getSnapshot().busy, true);
+    assert.equal(f.bridge.getSnapshot().registered, method === 'DELETE');
+    await Promise.all([f.bridge.enable(), f.bridge.disable()]);
+    pending.release();
+    await operation;
+    assert.equal(f.bridge.getSnapshot().busy, false);
+    assert.equal(f.bridge.getSnapshot().registered, method === 'POST');
+    assert.equal(f.requests.filter(request => request.init?.method === method).length, 1);
+  });
+}
+
+test('permission denial is locally owned once, leaves registration off, and requests no subscription', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  const stopObserving = f.bridge.observeErrors();
+  f.replace('Notification', { permission: 'default', requestPermission: async () => 'denied' });
+  await f.bridge.enable();
+  assert.equal(f.bridge.getSnapshot().permission, 'denied');
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.equal(f.bridge.getSnapshot().busy, false);
+  assert.equal(f.bridge.getSnapshot().errorReported, false);
+  assert.match(f.bridge.getSnapshot().error!, /权限未允许/);
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.counts().subscriptions, 0);
+  stopObserving();
+  assert.deepEqual(f.errors, [], 'unmount does not repeat a failure that already belonged to settings');
+});
+
+test('closing settings preserves accepted work and reports a later rejection globally exactly once', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  const stopObserving = f.bridge.observeErrors();
+  const pending = gate();
+  const started = gate();
+  f.context.request = async (_path, init) => {
+    assert.equal(init?.method, 'POST');
+    started.release();
+    await pending.promise;
+    return Response.json({ message: 'synthetic registration rejected' }, { status: 503 });
+  };
+  const enabling = f.bridge.enable();
+  await started.promise;
+  stopObserving();
+  assert.equal(f.bridge.getSnapshot().busy, true);
+  assert.equal(f.context.signal.aborted, false);
+  pending.release();
+  await enabling;
+  assert.equal(f.errors.length, 1);
+  assert.equal(f.bridge.getSnapshot().errorReported, true);
+  assert.equal(f.bridge.getSnapshot().subscribed, true);
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  const stopReopenedView = f.bridge.observeErrors();
+  assert.equal(f.bridge.getSnapshot().errorReported, true, 'reopening does not present the global fallback again');
+  stopReopenedView();
+  assert.equal(f.errors.length, 1);
+});
+
+test('worker synchronization cannot clear a settings-owned subscription failure', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  f.bridge.apply(state, []);
+  const stopObserving = f.bridge.observeErrors();
+  f.context.request = async () => Response.json({ message: 'synthetic registration rejected' }, { status: 503 });
+  await f.bridge.enable();
+  const error = f.bridge.getSnapshot().error;
+  assert.ok(error);
+  await f.bridge.refreshWorker();
+  assert.equal(f.bridge.getSnapshot().error, error);
+  assert.equal(f.bridge.getSnapshot().errorReported, false);
+  assert.deepEqual(f.errors, []);
+  stopObserving();
+});
+
+test('residual browser subscription cleanup remains retryable without re-enabling server registration', async t => {
+  const f = fixture(t);
+  f.setSubscription(f.createSubscription());
+  f.setRegistered(true);
+  await f.bridge.bootstrap();
+  const stopObserving = f.bridge.observeErrors();
+  f.rejectUnsubscribe();
+  await f.bridge.disable();
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.equal(f.bridge.getSnapshot().subscribed, true);
+  assert.equal(f.bridge.getSnapshot().errorReported, false);
+  await f.bridge.disable();
+  assert.equal(f.requests.filter(request => request.init?.method === 'DELETE').length, 2);
+  assert.equal(f.requests.some(request => request.init?.method === 'POST'), false);
+  assert.deepEqual(f.errors, []);
+  stopObserving();
+});
+
+test('module stop prevents late mutation state and new permission requests but preserves an accepted failure', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  const stopObserving = f.bridge.observeErrors();
+  const pending = gate();
+  const started = gate();
+  f.context.request = async () => {
+    started.release();
+    await pending.promise;
+    throw new Error('Synthetic registration response lost after stop');
+  };
+  const enabling = f.bridge.enable();
+  await started.promise;
+  f.bridge.dispose();
+  const stopped = f.bridge.getSnapshot();
+  assert.equal(stopped.stopped, true);
+  assert.equal(stopped.busy, false);
+  const replacement = new DeviceBridge(f.context);
+  const current = replacement.getSnapshot();
+  pending.release();
+  await enabling;
+  assert.equal(f.bridge.getSnapshot(), stopped);
+  assert.equal(replacement.getSnapshot(), current, 'late results do not write to a new device service');
+  assert.equal(f.errors.length, 1);
+  assert.match(String(f.errors[0]), /response lost after stop/);
+  await f.bridge.enable();
+  assert.equal(f.counts().permissionRequests, 0);
+  stopObserving();
+  replacement.dispose();
+});
+
+test('an already aborted module signal cannot start permission or device mutations before service disposal', async t => {
+  const f = fixture(t);
+  await f.bridge.bootstrap();
+  f.setPermission('default');
+  const aborted = new AbortController();
+  aborted.abort();
+  const bridge = new DeviceBridge({ ...f.context, signal: aborted.signal });
+  await bridge.enable();
+  await bridge.disable();
+  assert.equal(f.counts().permissionRequests, 0);
+  assert.equal(f.counts().subscriptions, 0);
+  assert.equal(f.requests.length, 0);
+  bridge.dispose();
 });

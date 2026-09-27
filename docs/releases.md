@@ -48,8 +48,9 @@ identity, sidecar equality and exact asset set are checked before and after
 publication.
 
 The module product is gated against source by `scripts/rolling-identity.mjs`:
-backend/module API 1; frontend API 2, UI 1, UI surface 1 and menu 1; no host intents.
-These become `module-api.v1`, `frontend-api.v2`, `ui.v1`, `uiSurface.v1`, `menu.v1`.
+backend/module API 1; frontend API 2, UI 1, UI surface 1 and settings 1; no host intents.
+These become `module-api.v1`, `frontend-api.v2`, `ui.v1`, `uiSurface.v1`, `settings.v1`.
+The old `menu.v1` requirement is removed with the notification menu contribution.
 Notification keeps a private version-1 `push-config.json` subscription/VAPID store
 and an in-memory unread ledger; it owns **no SQLite database or migration**.
 Empty `databases`/`migrations` are not permission to discard private data. The

@@ -34,9 +34,13 @@ U 表示当前模块运行代内，尚未确认已读的新消息条目数。每
 “系统通知中心有几张卡片”不是第二个业务计数；操作系统的合并、隐藏和用户划除行为
 不能反向改变 U 的定义。后台可以有投递尝试和设备订阅记录，但它们不是另一个未读数字。
 
-网页会话未读数位于状态行最右侧。汉堡菜单只保留“开启通知 / 关闭通知”的本设备操作，
-不显示独立铃铛、总数或通知设置面板，也不在 MCP/Skills 管理标题栏重复放入口。
-关闭通知不关闭未读统计或阅读确认；权限/网络错误仍通过宿主通用错误反馈显示。
+The session unread count stays at the right end of its status row. The hamburger
+menu has one host-owned Settings entry. Inside that native dialog, the order is
+default model, module settings (including **通知 / 本设备通知**), then About.
+The module contributes no separate menu action, bell, unread total, dialog or
+management-header entry. Turning device notifications off does not stop unread
+counting or read confirmation. Device errors belong to the mounted settings
+section; failures after it closes fall back to the host once.
 
 ## R2 · 计数范围
 

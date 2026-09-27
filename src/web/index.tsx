@@ -1,10 +1,11 @@
-import type { ActivateFrontend, MessageProps } from '@waksana/cockpit-module-sdk/frontend';
+import type { ActivateFrontend, MessageProps, SettingsProps } from '@waksana/cockpit-module-sdk/frontend';
 import { identity, keyId, snapshotKeys } from '../shared/protocol.ts';
 import type { MessageKey, Snapshot } from '../shared/protocol.ts';
 import { DeviceBridge } from './device.ts';
 import { UnreadStore } from './store.ts';
 import type { UnreadState } from './store.ts';
 import { observeRead } from './visibility.ts';
+import { createDeviceSettings } from './settings.tsx';
 export { buildVersion } from '../shared/build.ts';
 
 const labels: Record<UnreadState['status'], string> = {
@@ -13,9 +14,9 @@ const labels: Record<UnreadState['status'], string> = {
 };
 
 export const activate: ActivateFrontend = context => {
-  if (context.apiVersion !== 2 || context.uiVersion !== 1 || context.uiSurfaceVersion !== 1 || context.menuVersion !== 1 || !context.state?.host ||
+  if (context.apiVersion !== 2 || context.uiVersion !== 1 || context.uiSurfaceVersion !== 1 || context.settingsVersion !== 1 || !context.state?.host ||
       typeof context.state.register !== 'function' || typeof context.onEvent !== 'function') {
-    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1 / uiSurfaceVersion v1 / menus v1、state 和 onEvent');
+    throw new Error('未读通知需要宿主 Module frontend v2 / UI v1 / uiSurfaceVersion v1 / settings v1、state 和 onEvent');
   }
   const React = context.react;
   const deviceState = context.state.register({
@@ -34,6 +35,7 @@ export const activate: ActivateFrontend = context => {
   const device = deviceState.get();
   const store = unreadState.get();
   let stopped = false;
+  const DeviceSettings = createDeviceSettings(context, device, () => stopped);
   let foreground = false;
   let indexed: Snapshot | null = null;
   let keys = new Map<string, MessageKey>();
@@ -137,26 +139,6 @@ export const activate: ActivateFrontend = context => {
   if (context.signal.aborted) dispose();
   return {
     apiVersion: 2,
-    menus: [{
-      id: 'notification-toggle', menu: 'global',
-      subscribe: device.subscribe,
-      getState: () => {
-        const status = device.getSnapshot();
-        const enabled = status.registered || (!status.supported && status.subscribed);
-        return {
-          label: status.busy ? '通知处理中…' : enabled ? '关闭通知' :
-            status.supported ? '开启通知' : '开启通知（当前环境不支持）',
-          disabled: status.busy || (!enabled && !status.supported),
-        };
-      },
-      onSelect: (_target, { signal }) => {
-        signal.throwIfAborted();
-        const status = device.getSnapshot();
-        const enabled = status.registered || (!status.supported && status.subscribed);
-        if (status.busy || (!enabled && !status.supported)) throw new Error('当前无法更改本设备通知');
-        return enabled ? device.disable() : device.enable();
-      },
-    }],
     components: [
       { id: 'unread-marker', boundary: 'message', wrap: Base => function UnreadMessage(props) {
         const { bodyRef, marker, className } = useUnreadMessage(props);
@@ -165,6 +147,9 @@ export const activate: ActivateFrontend = context => {
       } },
       { id: 'unread-count', boundary: 'sessionStatus', wrap: Base => function UnreadSessionStatus(props) {
         return <Base {...props}>{props.children}<SessionBadge sessionId={props.sessionId} /></Base>;
+      } },
+      { id: 'notification-settings', boundary: 'settings', wrap: Base => function NotificationSettings(props: SettingsProps) {
+        return <><Base {...props} /><DeviceSettings /></>;
       } },
     ],
     dispose,

@@ -3,7 +3,7 @@
 Cockpit 的独立未读与通知模块：明确记录每一条未读消息，让消息旁的标记、会话数字、
 PWA 角标及对应推送使用同一份状态。
 
-**Main remains `0.0.0-dev`; every merged main PR attempts an immutable [Rolling release](docs/releases.md). `uiSurfaceVersion: 1` and the host's independent menu registration remain required.**
+**Main remains `0.0.0-dev`; every merged main PR attempts an immutable [Rolling release](docs/releases.md). This source requires `uiSurfaceVersion: 1` and the public `settingsVersion: 1` capability.**
 会话计数复用公共 `ck-badge` 并保留圆形/胶囊几何，业务状态与未读策略不变；精确支持 SHA 见[安装指南](docs/installation.md)。
 主 Agent 非 ephemeral、正文非空且没有工具请求的消息即本轮回复，所有模型同一规则、不看 phase，
 直接加入未读集合，不暂存候选或等待 turn/idle（0.1.13–0.1.16 只认 `final_answer`，Claude 等无 phase 模型会漏计）。
@@ -15,8 +15,8 @@ Incremental synchronization and the compact notification UI remain supported.
 Download only verified non-draft [Release assets](https://github.com/waksana/cockpit-notification/releases);
 Rolling sequence, not completion time or Latest, determines update order.
 不能把功能确认、源码提交、发布资产和某个实例安装混为一谈。
-需要宿主的通用模块事件通路及 `context.menuVersion === 1`；历史 Cockpit 0.2.3
-Release 不含这些能力，不能替代配套宿主。
+Generic module events and the host's unified settings boundary are required.
+An older host's API/UI version alone does not prove this capability is available.
 需要配套宿主的 Web API v2、
 公共 UI v1、shared-surfaces v1 和窄作用域 worker；旧 Web 插口不保留兼容层。
 包/宿主后端 API 仍为 v1；本次增量同步改变模块自己的核销回执和同步消息格式，需配套升级。
@@ -41,7 +41,8 @@ Release 不含这些能力，不能替代配套宿主。
   以 18% 不透明度叠加，不增加 padding、margin 或 DOM 包装，不改变布局。当前源码未读移除后底色用 1000ms ease-out 淡出，
   `prefers-reduced-motion` 下禁用过渡。问卷/提问不高亮，但仍观察呈现并报告已读，不自动回答。
 - 每个会话的状态行最右侧显示未读数量，支持的 PWA 图标显示各会话数量之和。
-  网页不显示全局未读总数；汉堡菜单只提供本设备通知的开启/关闭，不另放铃铛或设置面板。
+  The Web UI has no global unread count. Open **设置 → 通知 → 本设备通知**
+  to manage this device; there is no separate notification menu, bell or dialog.
 - 消息已读后消除对应未读高亮、数字与通知；允许传输和操作系统造成延迟，不宣称跨设备瞬时一致。
 - 模块持有自己的未读与通知数据；原生聊天、历史和消息身份仍以 Copilot 为准。
 - 未读账本仅存内存，模块重启清零，不补历史；已读先到与重复事件由核销凭据处理。
@@ -66,9 +67,11 @@ Release 不含这些能力，不能替代配套宿主。
 
 ## 实现与发行
 
-源码提供内存未读集合、按身份幂等核销、完整快照及标准 Web Push 的模块实现，
-通过共享 state 服务、消息/会话状态组件 middleware 和独立全局菜单项注册接入，不创建另一套 Chat，
-不为 middleware 增加 HTML 包装或空占位容器。
+The module provides an in-memory unread ledger, identity-based read receipts,
+snapshots and standard Web Push. It reuses shared state services and
+message/session-status/settings middleware, without another Chat, empty host slot
+or legacy notification menu. Settings preserve the host's default-model content
+and append one semantic notification section before the host-owned About section.
 回复底色使用公共 `MessageProps.className` 接入和 `--ck-color-accent` 主题 token，
 保留 `style`、`bodyRef`、children/adornment 与可访问性属性。
 正文内绘制避免 `content-visibility: auto` 对越界装饰的裁剪，不修改宿主或退出其性能优化。
