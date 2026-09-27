@@ -6,8 +6,8 @@ remove the legacy global notification menu. Confirmed device registration,
 permission limits, pending work and subscription cleanup remain explicit.
 Settings-local errors have a once-only global fallback after unmount; closing
 settings does not cancel accepted work. Unread markers, session counts and push
-persistence semantics are unchanged. SDK availability and a supporting host pin
-still gate this source change; see [installation](installation.md).
+persistence semantics are unchanged. SDK availability and successful paired-host
+integration still gate this source change; see [installation](installation.md).
 
 Switch to per-merged-main-PR Rolling builds with immutable workflow sequence
 identity, source-derived format-2 deployment descriptors and verified four-asset

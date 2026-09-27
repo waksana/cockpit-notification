@@ -2,12 +2,14 @@
 
 **Current source `0.0.0-dev` requires settings v1 and shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
 The settings integration is not release-ready yet: its public SDK must first be
-published and verified, then the dependency and paired-host pins must be updated.
+published and verified, then its dependency/lockfile and paired-host integration
+must pass the required checks.
 The retained baseline dependency is `@waksana/cockpit-module-sdk@0.2.0` from
 `https://npm.pkg.github.com`; this older SDK does not supply settings v1.
-The retained integration host `7d69b6f348e17f098bc5562fdbec317e8e2e4ba6` in
-[`tooling/integration-host.json`](../tooling/integration-host.json) is also a
-baseline, not evidence that this branch's new runtime requirement is satisfied.
+The supporting integration host is `929b86cf0d46a0d83ab9652c27d3c92bcb3c9e7d`,
+recorded in [`tooling/integration-host.json`](../tooling/integration-host.json).
+This immutable host pin supplies settings v1; successful consumer integration
+still must be verified after the SDK dependency update.
 The build never exports types from a host checkout.
 SDK semver is independent of host versions and does not prove host compatibility.
 会话计数复用 `ck-badge` 的基础排版，但保留计数专用圆形/胶囊几何、防压缩、
