@@ -88,12 +88,10 @@ try {
   await frontend.start();
   assert.deepEqual(frontendReports, []);
   assert.equal(frontend.getSnapshot().length, 1);
-  assert.deepEqual(frontend.getSnapshot()[0].frontend.components.map(entry => entry.boundary), ['message', 'sessionStatus']);
+  assert.deepEqual(frontend.getSnapshot()[0].frontend.components.map(entry => entry.boundary), ['message', 'sessionStatus', 'settings']);
   const menuSource = { isCurrent: () => true, subscribe: () => () => {} };
   const commands = frontend.menuItems({ menu: 'global' }, menuSource, () => true);
-  assert.equal(commands.length, 1);
-  assert.equal(commands[0].label, '开启通知（当前环境不支持）');
-  assert.equal(commands[0].disabled, true);
+  assert.deepEqual(commands, [], 'notification preferences belong in settings, not the global menu');
   assert.deepEqual(frontend.menuItems({ menu: 'session', sessionId: 'synthetic-session' }, menuSource, () => true), []);
   const base = module.apiBase;
   const headers = { 'x-cockpit-module-digest': installed.digest };
@@ -231,7 +229,8 @@ try {
     longTurnWithoutExpiry: true, nativeProjectionIdentity: true, pageReopenWithoutNewFailure: true,
     immediateToolFreeRepliesOnly: true, separateRepliesWithOrWithoutPhase: true,
     realErrorRetainedByPinnedHost: true,
-    narrowWorker: true, packagedFrontendMenuRegistry: true, noNativeRuntimeOrPushService: true }));
+    narrowWorker: true, packagedFrontendSettingsRegistry: true, noLegacyNotificationMenu: true,
+    noNativeRuntimeOrPushService: true }));
 } finally {
   frontend?.stop();
   host?.close();

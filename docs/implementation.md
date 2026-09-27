@@ -1,8 +1,9 @@
 # 首版实现与运行边界
 
-This page records current 0.1.18 source behavior; GitHub Release assets and an instance's installed state must be checked separately.
-要求通用 module/event、menus v1 与独立 shared-surfaces v1；精确宿主支持见[安装指南](installation.md)，
-历史发行版的 UI v1 本身不证明新增 badge 样式存在。
+This page records current source behavior; GitHub Release assets and an instance's installed state must be checked separately.
+Generic module events, settings v1 and independent shared-surfaces v1 are required;
+see [installation](installation.md) for the exact host pairing. UI v1 alone does
+not prove that settings middleware or shared badge styles exist.
 Source/package identity is bound by the exact SDK registry resolution in `pnpm-lock.yaml`,
 the module manifest and `module-build.json`. Host compatibility is checked separately
 against `tooling/integration-host.json`; the SDK is not generated from that checkout.
@@ -21,7 +22,7 @@ against `tooling/integration-host.json`; the SDK is not generated from that chec
 | 最终回复 | 主 Agent 非 ephemeral、正文非空且无工具请求的消息，不看 phase，直接入账 |
 | 推送 | 模块后端调用标准 Web Push；等待窗口默认 3000ms，已核销的不再发送 |
 | 设备配置 | VAPID 和推送订阅与未读账本分开保存，私有模块数据目录 |
-| UI | Web API v2 state 注册、message/sessionStatus middleware、独立 menus v1 注册；菜单只开关本设备通知 |
+| UI | Web API v2 state services and message/sessionStatus/settings middleware; one host settings section manages this device |
 | worker | 模块专属稳定 URL，narrow scope，不控制 Chat、不开离线缓存 |
 
 Web state 服务复用既有未读和设备逻辑，HTTP、版本与批量核销仍由模块管理。
@@ -96,16 +97,41 @@ UTF-16 码元并最多保留 120 字符，不缓存完整正文、不累计 toke
 旧版已丢弃的临时证据无法从模块内存恢复，不补算过去漏记的未读/推送；
 已确认的读/未读身份不因本次分类清理变化。未来经授权冷加载仍遵守既有重启新代、不补历史的边界。
 
-## 网页入口与会话行
+## Device notification settings and session rows
 
-`menus` 声明一个全局“开启通知 / 关闭通知”动作，不再使用 `globalNavigation` middleware。
-状态直接来自 DeviceBridge 的快照与订阅，动作仍由该服务执行；宿主拥有原生条目、分隔、排序和交互生命周期。
-没有菜单外的铃铛、全局数字或通知设置 dialog，也不增强管理页标题栏。
-设备操作进行中禁用重复点击；不支持推送时禁用开启，已有浏览器订阅仍允许关闭。
-仅浏览器创建订阅、后端登记失败不算开启成功；受支持环境继续显示“开启通知”，
-用户重试会复用已有浏览器订阅，不重复请求权限或自动注销它。
-错误走宿主通用反馈，不伪装为开关成功；重新加载页面或重连可恢复未读同步。
-PWA 角标仍使用内部总数，关闭本设备推送不改变未读集合。
+Open **设置 → 通知 → 本设备通知**. The public settings middleware preserves the
+default-model Base section and appends one sibling section before host-owned About; the
+[integration contract](integration.md) defines this boundary. No legacy menu
+action, separate bell, notification dialog or management-header enhancement remains.
+
+The native `button[role=switch]` reads `DeviceBridge.registered`, never optimistic
+local state or browser subscription presence alone. Its visible registration
+label, `aria-checked`, `aria-describedby`, native disabled state and 40px/44px
+public control target describe the same operation.
+
+| Device fact | Presentation and permitted action |
+| --- | --- |
+| Initializing | Explicit checking text; no mutation until initial inspection settles |
+| Busy | Existing confirmed registration stays visible; duplicate actions are blocked |
+| Browser subscription only | Switch stays off; supported permission allows enable retry using that subscription |
+| Registered | Switch stays on until server-side removal succeeds; registration is not a delivery guarantee |
+| Denied permission / unsupported environment | Explain the limit and disable enabling; an existing registration can still be disabled |
+| Residual browser subscription after server removal | Switch stays off; a separate **取消残留订阅** action retries cleanup without re-enabling |
+| Changed VAPID key / waiting worker update | Explain renewal or activation limits without silently resubscribing or claiming success |
+| Failed operation | Show the complete cause in the mounted section, without clearing valid registration facts |
+
+The settings layout effect claims local error presentation; its synchronous
+unmount cleanup releases only that claim, without a passive-cleanup gap.
+An error after unmount or module stop is reported globally once, and
+reopening does not repeat that same global error locally. Unrelated successful
+worker synchronization cannot clear a subscription-operation failure. Each
+accepted operation remains owned by the original bridge, not the current session,
+new settings mount or replacement module instance.
+
+Subscription enable/disable still owns permission and persistence. Merely opening
+settings never requests browser permission, creates a subscription or refetches
+the unread ledger. PWA badges retain the internal unread total; disabling this
+device does not change unread state or another device.
 
 会话徽标作为 sessionStatus 的末尾 children，位于原生状态文字右侧。
 徽标使用随字体缩放的 1.5em 等高最小宽度（默认 12px 元信息字体下为 18px）、

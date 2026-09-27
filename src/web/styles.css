@@ -40,3 +40,44 @@
   font-variant-numeric: tabular-nums;
 }
 .cn-stale { opacity: .7; }
+.cn-device-settings {
+  display: grid;
+  gap: var(--ck-space);
+  min-inline-size: 0;
+}
+.cn-device-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ck-space);
+  overflow-wrap: anywhere;
+}
+.cn-device-toggle { flex: none; }
+.cn-device-toggle-track {
+  display: inline-block;
+  box-sizing: border-box;
+  inline-size: 2.25em;
+  block-size: 1.25em;
+  padding: .125em;
+  border-radius: 999px;
+  background: var(--ck-color-border);
+}
+.cn-device-toggle-track::after {
+  content: "";
+  display: block;
+  inline-size: 1em;
+  block-size: 1em;
+  border-radius: 50%;
+  background: var(--ck-color-text);
+}
+.cn-device-toggle[aria-checked="true"] .cn-device-toggle-track {
+  background: var(--ck-color-accent);
+}
+.cn-device-toggle[aria-checked="true"] .cn-device-toggle-track::after {
+  margin-inline-start: auto;
+  background: var(--ck-color-on-accent);
+}
+.cn-device-description {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

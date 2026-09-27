@@ -28,7 +28,7 @@ export async function moduleProduct(root) {
   const requiresCapabilities = ['module-api.v1'];
   for (const [field, version, capability] of [
     ['apiVersion', 2, 'frontend-api.v2'], ['uiVersion', 1, 'ui.v1'],
-    ['uiSurfaceVersion', 1, 'uiSurface.v1'], ['menuVersion', 1, 'menu.v1'],
+    ['uiSurfaceVersion', 1, 'uiSurface.v1'], ['settingsVersion', 1, 'settings.v1'],
   ]) {
     assert.ok(frontend.includes(`context.${field} !== ${version}`), `Review changed ${field} requirement`);
     requiresCapabilities.push(capability);

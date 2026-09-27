@@ -1,21 +1,25 @@
 # 构建、配套宿主与安装
 
-**Current source `0.0.0-dev` requires shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
-The build consumes published `@waksana/cockpit-module-sdk@0.2.0` from
-`https://npm.pkg.github.com`; it does not export types from a host checkout.
-The exact integration host is `7d69b6f348e17f098bc5562fdbec317e8e2e4ba6`,
-recorded separately in [`tooling/integration-host.json`](../tooling/integration-host.json).
+**Current source `0.0.0-dev` requires settings v1 and shared-surfaces v1 and has no candidate cache.** All models retain the same direct tool-free reply admission, independent of phase.
+The settings integration is not release-ready yet: its public SDK must first be
+published and verified, then the dependency and paired-host pins must be updated.
+The retained baseline dependency is `@waksana/cockpit-module-sdk@0.2.0` from
+`https://npm.pkg.github.com`; this older SDK does not supply settings v1.
+The retained integration host `7d69b6f348e17f098bc5562fdbec317e8e2e4ba6` in
+[`tooling/integration-host.json`](../tooling/integration-host.json) is also a
+baseline, not evidence that this branch's new runtime requirement is satisfied.
+The build never exports types from a host checkout.
 SDK semver is independent of host versions and does not prove host compatibility.
 会话计数复用 `ck-badge` 的基础排版，但保留计数专用圆形/胶囊几何、防压缩、
 业务颜色、等宽数字、非交互语义与 stale 标签；不能直接套用可换行文字标签的尺寸。
 激活在注册任何贡献前额外要求 `context.uiSurfaceVersion === 1`；缺少或不支持时明确拒绝。
-增量同步、菜单、已读判定与未读底色策略保持不变。
-需要宿主提供的通用模块事件及菜单注册，历史 Cockpit 0.2.3 Release 不具备这些能力。
-源码配套宿主要求 Web API v2 的 state 服务、组件 middleware 及 `context.menuVersion === 1`；
-公共 UI v1、模块控制事件观察、invalidate 提示及窄作用域 worker 入口保持不变。
+Incremental synchronization, read confirmation and unread highlighting are unchanged.
+The paired host must expose generic module events, Web API v2 state services,
+component middleware and `context.settingsVersion === 1`. Public UI v1, module
+control-event observation and the narrow worker entry remain required.
 The SDK package version and resolution are pinned in `package.json` and `pnpm-lock.yaml`.
 Runtime capability checks remain mandatory; old UI v1 alone does not prove that
-surface/badge styles, menus, state services or module events exist.
+surface/badge styles, settings middleware, state services or module events exist.
 前端 context/返回声明均为 `apiVersion: 2`；包与后端 API 仍为 v1。
 本次是明确的配套升级，不提供旧 Web 插口兼容层；模块核销回执和同步消息使用 0.1.1 格式。
 
@@ -156,9 +160,10 @@ node --enable-source-maps apps/server/dist/module-cli.js install \
 VAPID 与设备订阅属于私有模块配置，保存在本模块 `dataRoot`，不能公开给 bootstrap 或日志。
 只有 VAPID 公钥和必要参数允许返回给客户端。
 
-用户通过汉堡菜单中的“开启通知 / 关闭通知”操作管理本设备推送；
-菜单注册需要本模块 pin 对应的配套宿主；旧 `globalNavigation` 包装不再保留，
-模块不在初次加载时自动弹出浏览器授权。
+Manage this device through **设置 → 通知 → 本设备通知**, inside the host's one
+native settings dialog. Missing settings v1 rejects activation; neither the old
+notification menu nor a `globalNavigation` wrapper is retained as a fallback.
+Opening the dialog never requests browser permission automatically.
 使用浏览器支持的 HTTPS/PWA 环境；拒绝权限时普通未读功能仍可使用。
 取消本设备订阅在模块界面执行；它不清其他设备，也不删除原生消息。
 

@@ -11,9 +11,12 @@ export interface DeviceStatus {
   registered: boolean;
   needsResubscribe: boolean;
   updatePending: boolean;
+  initializing: boolean;
   busy: boolean;
+  stopped: boolean;
   badgeSupported: boolean | null;
   error: string | null;
+  errorReported: boolean;
 }
 export function vapidBytes(value: unknown): Uint8Array<ArrayBuffer> {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(value)) throw new Error('推送公钥无效');
@@ -38,11 +41,13 @@ export class DeviceBridge {
   private listeners = new Set<() => void>();
   private registration: ServiceWorkerRegistration | null = null;
   private stopped = false;
+  private errorViews = new Set<symbol>();
+  private errorSource: 'worker' | 'operation' | null = null;
+  private errorRevision = 0;
   private pending = new Set<(reason: Error) => void>();
   private entry: string | null = null;
   private scope: string | null = null;
   private latest: Snapshot | null = null;
-  private initializing = true;
   private busy = false;
   private subscriptionEpoch = 0;
   private controller = new AbortController();
@@ -71,21 +76,35 @@ export class DeviceBridge {
       globalThis.isSecureContext === true && this.entry !== null;
     this.status = { supported, permission: typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
       installed: false, subscribed: false, registered: false, needsResubscribe: false, updatePending: false,
-      busy: false, badgeSupported: null, error };
+      initializing: true, busy: false, stopped: false, badgeSupported: null, error, errorReported: false };
   }
   getSnapshot = (): DeviceStatus => this.status;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener); return () => { this.listeners.delete(listener); };
+  };
+  observeErrors = (): (() => void) => {
+    const owner = Symbol();
+    this.errorViews.add(owner);
+    return () => { this.errorViews.delete(owner); };
   };
   private publish(update: Partial<DeviceStatus>) {
     if (this.stopped) return;
     this.status = { ...this.status, ...update };
     for (const listener of this.listeners) listener();
   }
-  private fail(error: unknown) {
-    if (this.stopped) return;
-    this.context.report(error);
-    this.publish({ error: error instanceof Error ? error.message : String(error) });
+  private fail(error: unknown, source: 'worker' | 'operation' = 'worker') {
+    const inactive = this.stopped || this.context.signal.aborted;
+    if (inactive && source !== 'operation') return;
+    this.errorSource = source;
+    this.errorRevision++;
+    const errorReported = inactive || this.errorViews.size === 0;
+    if (errorReported) this.context.report(error);
+    this.publish({ error: error instanceof Error ? error.message : String(error), errorReported });
+  }
+  private clearError() {
+    this.errorSource = null;
+    this.errorRevision++;
+    this.publish({ error: null, errorReported: false });
   }
   private async findRegistration() {
     if (!this.scope || !this.entry) return null;
@@ -137,17 +156,18 @@ export class DeviceBridge {
     try { await flight; } finally { if (this.updateFlight === flight) this.updateFlight = null; }
   }
   private async resumeState() {
-    if (!this.latest || this.initializing || this.stopped) return;
+    if (!this.latest || this.status.initializing || this.stopped || this.context.signal.aborted) return;
+    const revision = this.errorRevision;
     await this.send({ type: 'APPLY_STATE', state: this.latest, acknowledged: [] });
-    this.publish({ error: null });
+    if (this.errorSource === 'worker' && this.errorRevision === revision) this.clearError();
   }
   async refreshWorker() {
-    if (!this.registration || this.stopped) return;
+    if (!this.registration || this.stopped || this.context.signal.aborted) return;
     try { await this.updateRegistration(); await this.resumeState(); }
     catch (error) { this.fail(error); }
   }
   private subscriptionCurrent(epoch: number) {
-    return !this.stopped && !this.busy && this.subscriptionEpoch === epoch;
+    return !this.stopped && !this.context.signal.aborted && !this.busy && this.subscriptionEpoch === epoch;
   }
   private async checkSubscription(registration: ServiceWorkerRegistration, epoch: number) {
     const subscription = await registration.pushManager.getSubscription();
@@ -171,8 +191,9 @@ export class DeviceBridge {
     return subscriptionId(subscription);
   }
   async bootstrap() {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !this.entry || this.stopped) {
-      this.initializing = false; return;
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !this.entry ||
+        this.stopped || this.context.signal.aborted) {
+      this.publish({ initializing: false }); return;
     }
     const epoch = this.subscriptionEpoch;
     try {
@@ -190,13 +211,13 @@ export class DeviceBridge {
       }
     } catch (error) { if (this.subscriptionCurrent(epoch)) this.fail(error); }
     finally {
-      this.initializing = false;
+      this.publish({ initializing: false });
       if (this.latest) this.apply(this.latest, []);
     }
   }
   apply(state: Snapshot, _acknowledged: MessageKey[]) {
     this.latest = state;
-    if (!this.registration || this.initializing || this.stopped) return;
+    if (!this.registration || this.status.initializing || this.stopped) return;
     void this.send({ type: 'APPLY_STATE', state, acknowledged: [] }).catch(error => this.fail(error));
   }
   handleMessage(event: MessageEvent): UnreadSyncHint | false {
@@ -262,10 +283,11 @@ export class DeviceBridge {
     return result;
   }
   async enable() {
-    if (this.busy || this.stopped || !this.status.supported) return;
+    if (this.busy || this.stopped || this.context.signal.aborted || !this.status.supported) return;
     this.busy = true;
     this.subscriptionEpoch++;
-    this.publish({ busy: true, error: null });
+    this.clearError();
+    this.publish({ busy: true });
     try {
       // Permission is requested synchronously within this explicit button gesture.
       const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
@@ -310,7 +332,7 @@ export class DeviceBridge {
       this.subscriptionReference = { endpoint: new URL(subscription.endpoint).href, id: body.id };
       this.publish({ registered: true, needsResubscribe: false });
       await this.send({ type: 'SYNC' });
-    } catch (error) { this.fail(error); }
+    } catch (error) { this.fail(error, 'operation'); }
     finally { this.busy = false; this.publish({ busy: false }); }
   }
   private async remove(subscription: PushSubscription) {
@@ -326,29 +348,34 @@ export class DeviceBridge {
     this.publish({ registered: false });
     this.ensureActive();
     if (!await subscription.unsubscribe()) throw new Error('服务端已停用，但浏览器未确认取消设备订阅，请重试');
+    this.ensureActive();
     this.subscriptionReference = null;
     this.publish({ subscribed: false, needsResubscribe: false });
   }
   async disable() {
-    if (this.busy || this.stopped || !this.registration) return;
+    if (this.busy || this.stopped || this.context.signal.aborted || !this.registration) return;
     this.busy = true;
     this.subscriptionEpoch++;
-    this.publish({ busy: true, error: null });
+    this.clearError();
+    this.publish({ busy: true });
     try {
       const subscription = await this.registration.pushManager.getSubscription();
       this.ensureActive();
       if (subscription) await this.remove(subscription);
       else this.publish({ subscribed: false, registered: false });
-    } catch (error) { this.fail(error); }
+    } catch (error) { this.fail(error, 'operation'); }
     finally { this.busy = false; this.publish({ busy: false }); }
   }
   dispose() {
+    if (this.stopped) return;
+    this.publish({ stopped: true, initializing: false, busy: false });
     this.stopped = true;
     this.controller.abort();
     this.registrationCleanup.splice(0).forEach(cleanup => cleanup());
     this.inspectRegistration = null;
     for (const cancel of [...this.pending]) cancel(new Error('通知模块已停止'));
     this.listeners.clear();
+    this.errorViews.clear();
   }
   private ensureActive() {
     if (this.stopped || this.context.signal.aborted) throw new Error('通知模块已停止');

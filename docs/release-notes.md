@@ -1,11 +1,20 @@
 # Cockpit Notification development
 
+Move **本设备通知** into the host's single **设置** dialog using public settings
+middleware, after the default model and before About. Require settings v1 and
+remove the legacy global notification menu. Confirmed device registration,
+permission limits, pending work and subscription cleanup remain explicit.
+Settings-local errors have a once-only global fallback after unmount; closing
+settings does not cancel accepted work. Unread markers, session counts and push
+persistence semantics are unchanged. SDK availability and a supporting host pin
+still gate this source change; see [installation](installation.md).
+
 Switch to per-merged-main-PR Rolling builds with immutable workflow sequence
 identity, source-derived format-2 deployment descriptors and verified four-asset
 publication. Main remains `0.0.0-dev`; Milestone promotion edits an existing
 selected Rolling in place without rebuilding. Historical release facts below
 remain unchanged. See [release policy](releases.md) for the cutover and recovery.
-No unread, push, subscription, private storage or SDK pairing behavior changes.
+The Rolling cutover itself changed no unread, push, subscription or private-storage behavior.
 
 # Cockpit Notification 0.1.18 (source preparation)
 

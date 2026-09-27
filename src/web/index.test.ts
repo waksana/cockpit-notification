@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { build } from 'esbuild';
-import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration } from '@waksana/cockpit-module-sdk/frontend';
+import type { ActivateFrontend, MessageProps, ModuleFrontend, ModuleFrontendContext, ModuleStateRegistration, SettingsProps } from '@waksana/cockpit-module-sdk/frontend';
 import type { ComponentType, RefCallback } from 'react';
 import type { MessageKey, Snapshot, UnreadEvent } from '../shared/protocol.ts';
 import { keyId } from '../shared/protocol.ts';
@@ -15,6 +15,29 @@ const compiled = (await build({ entryPoints: [fileURLToPath(new URL('./index.tsx
 const { activate } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`) as { activate: ActivateFrontend };
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 interface Element { type: unknown; props: Record<string, unknown> }
+function isElement(value: unknown): value is Element {
+  return typeof value === 'object' && value !== null && 'type' in value && 'props' in value;
+}
+function descendants(value: unknown): Element[] {
+  if (Array.isArray(value)) return value.flatMap(descendants);
+  return isElement(value) ? [value, ...descendants(value.props.children)] : [];
+}
+function text(value: unknown): string {
+  if (Array.isArray(value)) return value.map(text).join('');
+  if (isElement(value)) return text(value.props.children);
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
+function control(section: Element, role = 'switch') {
+  const result = descendants(section).find(element => element.type === 'button' &&
+    (role === 'switch' ? element.props.role === role : text(element) === role));
+  assert.ok(result, `Missing ${role} control`);
+  return result;
+}
+function click(element: Element) {
+  const onClick = element.props.onClick;
+  assert.equal(typeof onClick, 'function');
+  if (typeof onClick === 'function') onClick();
+}
 const base: Snapshot = { generation: 'generation-a', revision: 1, complete: true, total: 1, sessions: [{
   sessionId: 'session-a', count: 1, items: [{ kind: 'reply', nativeId: 'reply-a', createdRevision: 1 }],
 }] };
@@ -100,11 +123,20 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
     disconnect() { resizes.delete(this.callback); }
   });
   const hooks = {
-    refs: [] as { current: unknown }[], effects: [] as { deps: unknown[]; cleanup?: () => void }[],
+    refs: [] as { current: unknown }[], effects: [] as { deps: unknown[]; layout: boolean; cleanup?: () => void }[],
     callbacks: [] as { callback: unknown; deps: unknown[] }[],
     states: [] as unknown[], ref: 0, effect: 0, state: 0, callback: 0, dirty: false,
   };
   const effects: (() => void)[] = [];
+  const passiveCleanups: (() => void)[] = [];
+  const registerEffect = (effect: () => (() => void) | void, deps: unknown[], layout: boolean) => {
+    const index = hooks.effect++;
+    const previous = hooks.effects[index];
+    if (previous && previous.deps.length === deps.length && deps.every((value, index) => Object.is(value, previous.deps[index]))) return;
+    const entry = { deps, layout, cleanup: undefined as (() => void) | undefined };
+    hooks.effects[index] = entry;
+    effects.push(() => { previous?.cleanup?.(); entry.cleanup = effect() || undefined; });
+  };
   const React = {
     Fragment: Symbol('fragment'),
     createElement(type: unknown, attributes: Record<string, unknown> | null, ...children: unknown[]): Element {
@@ -131,20 +163,19 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
     },
     useSyncExternalStore(_subscribe: unknown, getSnapshot: () => unknown) { return getSnapshot(); },
     useEffect(effect: () => (() => void) | void, deps: unknown[]) {
-      const index = hooks.effect++;
-      const previous = hooks.effects[index];
-      if (previous && previous.deps.length === deps.length && deps.every((value, index) => Object.is(value, previous.deps[index]))) return;
-      const entry = { deps, cleanup: undefined as (() => void) | undefined };
-      hooks.effects[index] = entry;
-      effects.push(() => { previous?.cleanup?.(); entry.cleanup = effect() || undefined; });
+      registerEffect(effect, deps, false);
     },
-    useLayoutEffect(effect: () => (() => void) | void, deps: unknown[]) { React.useEffect(effect, deps); },
+    useLayoutEffect(effect: () => (() => void) | void, deps: unknown[]) { registerEffect(effect, deps, true); },
   };
   const controller = new AbortController();
   const context = {
-    apiVersion: 2, uiVersion: 1, uiSurfaceVersion: 1, menuVersion: 1, moduleId: 'cockpit-notification', react: React,
+    apiVersion: 2, uiVersion: 1, uiSurfaceVersion: 1, settingsVersion: 1, moduleId: 'cockpit-notification', react: React,
     apiBase: `https://host.test/deployment/_modules/cockpit-notification/${'a'.repeat(64)}/api`,
     config: { readDelayMs: 600, pushDelayMs: 3000, maxBatch: 128 },
+    worker: {
+      entry: '/deployment/_modules/workers/cockpit-notification/worker.js',
+      scope: '/deployment/_modules/workers/cockpit-notification/',
+    },
     signal: controller.signal, report: (error: unknown) => errors.push(error),
     createPortal: (children: unknown, target: unknown) => {
       assert.equal(target, body); return { type: 'portal', props: { children: [children] } };
@@ -207,9 +238,12 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
     if (refCleanup) refCleanup(); else mountedRef?.(null);
     mountedRef = undefined; mountedElement = null; refCleanup = undefined;
   };
-  const unmount = () => {
+  const unmount = (deferPassive = false) => {
     detachRef();
-    hooks.effects.forEach(effect => effect.cleanup?.());
+    hooks.effects.forEach(effect => {
+      if (deferPassive && !effect.layout && effect.cleanup) passiveCleanups.push(effect.cleanup);
+      else effect.cleanup?.();
+    });
     effects.length = 0;
     hooks.effects = []; hooks.refs = []; hooks.states = []; hooks.callbacks = [];
   };
@@ -247,16 +281,43 @@ function fixture(t: { after(fn: () => void): void }, initial = base) {
     const result = renderMessage(frontend, values);
     return ((result.props.adornment as Element | undefined)?.props.children as Element[] | undefined)?.at(-1) ?? null;
   };
-  t.after(() => { unmount(); controller.abort(); disposeServices(); restorers.reverse().forEach(restore => restore()); });
+  const settingsBase = (_props: SettingsProps) => null;
+  const settings = (frontend: ModuleFrontend) => {
+    const registration = frontend.components!.find(component => component.boundary === 'settings');
+    assert.ok(registration);
+    const values = {
+      children: 'host default model', className: 'fixture-default-model',
+      'aria-labelledby': 'fixture-model-heading', 'aria-busy': true,
+      onKeyDown: () => {},
+    };
+    const wrapped = render(registration.wrap(settingsBase), values)!;
+    assert.equal(wrapped.type, React.Fragment, 'module settings add no DOM wrapper around the host section');
+    const children = wrapped.props.children;
+    assert.ok(Array.isArray(children));
+    assert.equal(children.length, 2, 'exactly one module section follows Base as a sibling');
+    assert.ok(isElement(children[0]));
+    assert.equal(children[0].type, settingsBase, 'the original default-model section remains the Base');
+    for (const [name, value] of Object.entries(values)) {
+      assert.equal(children[0].props[name], value, `Base ${name} remains unchanged`);
+    }
+    assert.equal(children[0].props.children, values.children,
+      'notification content must not be passed inside a healthy peer middleware boundary');
+    assert.ok(isElement(children[1]));
+    const section = render(children[1].type, children[1].props)!;
+    flushEffects();
+    return section;
+  };
+  const flushPassiveCleanups = () => passiveCleanups.splice(0).forEach(cleanup => cleanup());
+  t.after(() => { unmount(); flushPassiveCleanups(); controller.abort(); disposeServices(); restorers.reverse().forEach(restore => restore()); });
   return { context, element, calls, errors, controller, services, serviceDisposals, disposeServices,
-    observedElements, renderMessage, marker, Base,
+    observedElements, renderMessage, marker, settings, Base,
     listeners: () => viewListeners.size + listeners.size,
     observed: () => observed, invalidate: () => invalidate(),
     event: (value: UnreadEvent) => onEvent(value),
     subscriptions: () => ({ events: eventSubscriptions, invalidations: invalidationSubscriptions }),
     setAutoDelta: (value: boolean) => { autoDelta = value; },
     setSession(value: string) { sessionId = value; for (const listener of viewListeners) listener(); },
-    unmount, setFocus: (value: boolean) => {
+    unmount, flushPassiveCleanups, setFocus: (value: boolean) => {
       focus = value; windowListeners.dispatchEvent(new Event(value ? 'focus' : 'blur'));
     }, setObstructed: (value: boolean) => { obstructed = value; },
     setInert: (value: boolean) => { inert = value; }, setRect: (value: typeof rect) => { rect = value; },
@@ -272,14 +333,14 @@ test('frontend registers concrete services and v2 middleware; unsupported push k
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
-  assert.deepEqual(Object.keys(frontend).sort(), ['apiVersion', 'components', 'dispose', 'menus']);
+  assert.deepEqual(Object.keys(frontend).sort(), ['apiVersion', 'components', 'dispose']);
   assert.equal(frontend.apiVersion, 2);
   assert.deepEqual(frontend.components?.map(component => component.boundary),
-    ['message', 'sessionStatus']);
-  assert.deepEqual(frontend.menus?.map(entry => entry.menu), ['global']);
+    ['message', 'sessionStatus', 'settings']);
+  assert.equal(frontend.menus, undefined);
   assert.deepEqual(f.services.map(service => [service.id, service.instance.constructor.name]),
     [['device-bridge', 'DeviceBridge'], ['unread-store', 'UnreadStore']]);
-  const ids = [...f.services, ...frontend.components!, ...frontend.menus!].map(registration => registration.id);
+  const ids = [...f.services, ...frontend.components!].map(registration => registration.id);
   assert.equal(new Set(ids).size, ids.length);
   const line = f.marker(frontend);
   assert.equal(line?.type, 'span');
@@ -706,7 +767,7 @@ test('hidden, disconnected or disposed modules cannot submit presentation facts'
   assert.equal(f.calls.length, 1);
 });
 
-test('sidebar badge remains noninteractive while navigation contains only the notification menu action', async t => {
+test('sidebar badge remains noninteractive without a legacy notification navigation action', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
@@ -727,61 +788,187 @@ test('sidebar badge remains noninteractive while navigation contains only the no
   assert.equal(badge.props.tabIndex, undefined);
   assert.deepEqual(badge.props.children, [1]);
   f.unmount();
-  assert.equal(frontend.menus!.length, 1);
-  const state = frontend.menus![0]!.getState({ menu: 'global' });
-  assert.equal(state.label, '开启通知（当前环境不支持）');
-  assert.equal(state.disabled, true);
-  assert.doesNotMatch(compiled, /cn-global|cn-dialog|cn-settings|cn-state-dot|createPortal|通知设置，|未读：/);
-  assert.doesNotMatch(compiled, /globalNavigation|props\.items/);
+  assert.equal(frontend.menus, undefined);
+  assert.doesNotMatch(compiled, /cn-global|cn-dialog|cn-state-dot|createPortal|通知设置，|未读：/);
+  assert.doesNotMatch(compiled, /notification-toggle|globalNavigation|props\.items/);
 });
 
-test('notification menu only toggles this device and disables actions during work or unsupported enablement', async t => {
+test('settings append a sibling notification section with untouched Base props and no legacy menu capability', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const section = f.settings(frontend);
+  assert.equal(section.type, 'section');
+  const heading = descendants(section).find(element => element.type === 'h3')!;
+  assert.equal(text(heading), '通知');
+  assert.equal(heading.props.className, 'ck-heading');
+  assert.equal(section.props['aria-labelledby'], heading.props.id);
+  const toggle = control(section);
+  const label = descendants(section).find(element => element.props.id === toggle.props['aria-labelledby']);
+  assert.equal(text(label), '本设备通知');
+  assert.equal(toggle.props.type, 'button');
+  assert.equal(toggle.props['aria-checked'], false);
+  assert.equal(toggle.props.disabled, true);
+  assert.match(String(toggle.props.className), /\bck-button\b/);
+  assert.match(text(section), /当前环境不支持/);
+  assert.equal(descendants(section).some(element => element.type === 'dialog'), false);
+  assert.equal(frontend.menus, undefined);
+  assert.equal(f.services.length, 2);
+  assert.equal(f.calls.length, 1, 'opening settings does not query or recreate unread state');
+});
+
+test('device settings reflect registration, permissions, initialization and pending state without optimistic enablement', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
   await settle();
   const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
   const initial = bridge.getSnapshot();
-  let status: DeviceStatus = { ...initial, supported: true, error: null };
+  let status: DeviceStatus = { ...initial, supported: true, permission: 'default', error: null };
   const toggled: string[] = [];
   bridge.getSnapshot = () => status;
   bridge.enable = async () => { toggled.push('enable'); };
   bridge.disable = async () => { toggled.push('disable'); };
-  const menu = frontend.menus![0]!;
-  const target = { menu: 'global' } as const;
-  const toggle = () => menu.getState(target);
-  const controller = new AbortController();
-  const click = () => menu.onSelect(target, { signal: controller.signal });
-  assert.equal(menu.subscribe, bridge.subscribe, 'the registry subscribes to the existing device service');
-  assert.equal(toggle().label, '开启通知');
-  assert.equal(toggle().disabled, false);
+  const section = () => f.settings(frontend);
+  const toggle = () => control(section());
+  assert.equal(toggle().props['aria-checked'], false);
+  assert.equal(toggle().props.disabled, false);
+  assert.match(text(section()), /请求浏览器通知权限/);
   assert.deepEqual(toggled, []);
-  await click();
+  click(toggle());
   assert.deepEqual(toggled, ['enable']);
-  status = { ...status, subscribed: true, registered: false, error: 'Server registration rejected' };
-  assert.equal(toggle().label, '开启通知', 'a browser-only subscription does not claim server-side enablement');
-  assert.equal(toggle().disabled, false);
-  await click();
+  assert.equal(toggle().props['aria-checked'], false, 'acceptance does not mark the switch enabled');
+  status = { ...status, subscribed: true, registered: false, permission: 'granted', error: 'Server registration rejected' };
+  assert.equal(toggle().props['aria-checked'], false, 'a browser-only subscription is not server-side enablement');
+  assert.equal(toggle().props.disabled, false);
+  assert.match(text(section()), /Server registration rejected/);
+  assert.equal(control(section(), '取消残留订阅').props.disabled, false);
+  click(toggle());
   assert.deepEqual(toggled, ['enable', 'enable']);
   status = { ...status, registered: true, subscribed: true };
-  assert.equal(toggle().label, '关闭通知');
-  await click();
+  assert.equal(toggle().props['aria-checked'], true);
+  click(toggle());
   assert.deepEqual(toggled, ['enable', 'enable', 'disable']);
+  const staleToggle = toggle();
   status = { ...status, busy: true };
-  assert.equal(toggle().label, '通知处理中…');
-  assert.equal(toggle().disabled, true);
-  assert.throws(click, /当前无法更改/);
+  assert.equal(toggle().props['aria-busy'], true);
+  assert.equal(toggle().props.disabled, true);
+  assert.match(text(section()), /正在更新本设备通知/);
+  click(staleToggle);
+  status = { ...status, busy: false, initializing: true };
+  assert.equal(toggle().props.disabled, true);
+  assert.match(text(section()), /正在检查/);
+  click(staleToggle);
+  status = { ...status, initializing: false, permission: 'denied' };
+  assert.equal(toggle().props.disabled, false, 'revoked permission does not block disabling a registered device');
+  assert.match(text(section()), /权限已被浏览器或系统阻止/);
+  status = { ...status, registered: false };
+  assert.equal(toggle().props.disabled, true);
+  click(staleToggle);
   status = { ...status, busy: false, registered: false, subscribed: true, supported: false };
-  assert.equal(toggle().disabled, false, 'a remaining browser subscription can still be disabled');
+  assert.equal(toggle().props['aria-checked'], false, 'an unsupported browser-only subscription does not look enabled');
+  assert.equal(toggle().props.disabled, true);
+  click(control(section(), '取消残留订阅'));
+  assert.deepEqual(toggled, ['enable', 'enable', 'disable', 'disable']);
   status = { ...status, subscribed: false };
-  assert.equal(toggle().disabled, true);
-  assert.throws(click, /当前无法更改/);
-  status = { ...status, supported: true };
-  controller.abort();
-  assert.throws(click, /abort/i);
-  assert.deepEqual(toggled, ['enable', 'enable', 'disable']);
-  assert.equal(f.calls.length, 1, 'menu rendering and toggling do not refetch unread state');
+  assert.equal(toggle().props.disabled, true);
+  click(staleToggle);
+  status = { ...status, supported: true, permission: 'granted', registered: true, needsResubscribe: true };
+  assert.match(text(section()), /订阅密钥已变更/);
+  status = { ...status, needsResubscribe: false, updatePending: true, error: null };
+  assert.match(text(section()), /更新尚未激活/);
+  f.controller.abort();
+  assert.equal(toggle().props.disabled, true);
+  click(staleToggle);
+  assert.deepEqual(toggled, ['enable', 'enable', 'disable', 'disable']);
+  assert.equal(f.calls.length, 1, 'settings rendering and toggling do not refetch unread state');
   assert.equal(frontend.components!.some(component =>
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
+});
+
+test('settings unmount does not dispose accepted device work; stale callbacks cannot act after module stop', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
+  const initial = bridge.getSnapshot();
+  let status: DeviceStatus = { ...initial, supported: true, permission: 'granted' };
+  bridge.getSnapshot = () => status;
+  let release!: () => void;
+  let completed = false;
+  let starts = 0;
+  bridge.enable = async () => {
+    starts++;
+    status = { ...status, busy: true };
+    await new Promise<void>(resolve => { release = resolve; });
+    status = { ...status, busy: false, registered: true };
+    completed = true;
+  };
+  const button = control(f.settings(frontend));
+  click(button);
+  click(button);
+  assert.equal(starts, 1);
+  f.setSession('session-b');
+  f.unmount();
+  assert.equal(f.controller.signal.aborted, false, 'closing settings does not abort the module');
+  assert.deepEqual(f.serviceDisposals, []);
+  release();
+  await settle();
+  assert.equal(completed, true);
+  assert.equal(control(f.settings(frontend)).props['aria-checked'], true);
+  frontend.dispose?.();
+  click(button);
+  assert.equal(starts, 1);
+  assert.equal(control(f.settings(frontend)).props.disabled, true);
+});
+
+test('settings show locally owned errors once and do not repeat a global fallback after reopening', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
+  let status = { ...bridge.getSnapshot(), error: 'Synthetic failure', errorReported: false };
+  bridge.getSnapshot = () => status;
+  const section = f.settings(frontend);
+  const alerts = descendants(section).filter(element => element.props.role === 'alert');
+  assert.equal(alerts.length, 1);
+  assert.equal(text(alerts[0]), 'Synthetic failure');
+  assert.match(String(control(section).props['aria-describedby']), /-error$/);
+  f.unmount();
+  status = { ...status, errorReported: true };
+  const reopened = f.settings(frontend);
+  assert.equal(descendants(reopened).filter(element => element.props.role === 'alert').length, 0);
+  assert.doesNotMatch(text(reopened), /Synthetic failure/);
+});
+
+test('settings release error ownership during unmount even when passive cleanup is deferred', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
+  const observeErrors = bridge.observeErrors;
+  let owners = 0;
+  bridge.observeErrors = () => {
+    owners++;
+    const cleanup = observeErrors();
+    return () => { owners--; cleanup(); };
+  };
+  f.settings(frontend);
+  assert.equal(owners, 1);
+  f.unmount(true);
+  assert.equal(owners, 0, 'a disconnected section must not suppress a later global error');
+  f.flushPassiveCleanups();
+  assert.equal(owners, 0);
+  assert.deepEqual(f.serviceDisposals, [], 'synchronous ownership cleanup does not cancel the device service');
+});
+
+test('notification settings keep public control geometry and module-only flow layout', async () => {
+  const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+  const settings = css.slice(css.indexOf('.cn-device-settings'));
+  assert.match(settings, /gap:\s*var\(--ck-space\)/);
+  assert.match(settings, /overflow-wrap:\s*anywhere/);
+  assert.doesNotMatch(settings, /(?:^|\n)\.ck-|--host-|#[a-f0-9]{3,8}\b|overflow:\s*(?:auto|scroll)|position:\s*(?:fixed|absolute)/i);
+  assert.doesNotMatch(settings, /outline:\s*(?:0|none)|min-block-size:|font-size:/,
+    'ordinary button targets, focus and type remain owned by public ck-button');
 });
 
 test('unread count retains circular, nonshrinking geometry over the public text badge', async () => {
@@ -801,7 +988,7 @@ test('unread count retains circular, nonshrinking geometry over the public text 
 
 test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are explicit', async t => {
   const f = fixture(t);
-  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { uiSurfaceVersion: undefined }, { uiSurfaceVersion: 0 }, { uiSurfaceVersion: 2 }, { menuVersion: undefined }, { menuVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
+  for (const extra of [{ apiVersion: 1 }, { uiVersion: 2 }, { uiSurfaceVersion: undefined }, { uiSurfaceVersion: 0 }, { uiSurfaceVersion: 2 }, { settingsVersion: undefined }, { settingsVersion: 0 }, { settingsVersion: 2 }, { state: undefined }, { onEvent: undefined }]) {
     await assert.rejects(async () => activate({ ...f.context, ...extra } as ModuleFrontendContext), /frontend v2/);
   }
   assert.equal(f.calls.length, 0);
@@ -821,5 +1008,5 @@ test('breaking frontend ABI rejection and theme-aware in-bounds highlighting are
   assert.match(label, /pointer-events:\s*none/);
   assert.doesNotMatch(css, /cn-redline|content-visibility/);
   assert.doesNotMatch(css, /(?:^|\n)(?:body|\.chat|\.message)/);
-  assert.doesNotMatch(css, /cn-global|cn-dialog|cn-settings|cn-state-dot/);
+  assert.doesNotMatch(css, /cn-global|cn-dialog|cn-state-dot/);
 });
