@@ -7,9 +7,14 @@ import type { ModuleBackend, ModuleBackendContext, ModuleResponse, NativeObserva
 import type { PushSubscription } from 'web-push';
 import { activate } from './index.ts';
 import type { Clock, Sender } from './push.ts';
+import type { SendOutcome, SendResult } from '../shared/delivery.ts';
 import { parseSnapshot, parseUnreadEvent, type Snapshot, type UnreadEvent } from '../shared/protocol.ts';
 
 export { key, message, observation, turn } from './native-fixtures.ts';
+export function sendResult(outcome: SendOutcome): SendResult {
+  return outcome === 'UNKNOWN' ? { outcome, phase: 'transport', networkCategory: 'other' } :
+    { outcome, phase: 'response', upstreamStatus: outcome === 'ACCEPTED' ? 201 : 503 };
+}
 
 export class FakeClock implements Clock {
   time = 1_000;

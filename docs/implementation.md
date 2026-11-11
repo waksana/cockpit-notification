@@ -227,6 +227,39 @@ Worker 向页面转发 push 的版本检查点，已由 SSE 覆盖则不再 GET�
 即使随后以相同 endpoint 重新启用，也不恢复这些旧尝试。其他设备与后续新消息不受影响。
 前端设备启用/停用会使先前的订阅查询失效，晚返回的查询不能覆盖已完成的操作。
 
+### Push failures and delivery diagnostics
+
+Each attempt returns a bounded result: `outcome`, `phase` (`preparation`,
+`transport`, `response`, or `cancelled`), real `upstreamStatus` only when HTTP
+headers arrived, optional `retryAfterSeconds` clamped to 0–86400, and a fixed
+network category (DNS, destination policy, TLS, timeout, connection, abort, other).
+Request/encryption construction failures are `FAILED`; transport failures without
+response headers remain `UNKNOWN`. A 2xx is only service acceptance, not device
+delivery, display or READ. Redirects and all other non-2xx responses are rejected.
+There is **no automatic retry**, including 429/5xx or UNKNOWN; Retry-After is
+diagnostic information, not a scheduled action.
+
+Only 404/410 invalidate a subscription. Each successful registration gets a new
+in-memory generation, even for identical endpoint and keys. Invalidation compares
+the exact generation captured at send time, so a late old request cannot remove
+a new registration. READY attempts for that generation are cancelled; other
+devices, new registrations and unread/read state are unchanged. Durable deletion
+uses the existing private store. If writing fails, that registration is quarantined
+in memory and `PUSH_INVALIDATION_PERSIST_FAILED` explicitly reports that restart
+may restore it; failed persistence is never presented as durable removal.
+
+`GET /subscriptions/:id` optionally includes `delivery`: latest attempt,
+last failure and last service-accepted time. The bounded in-memory history keeps
+the 64 most recently completed device records, including removed registrations;
+it resets on module restart and never persists message content. Later acceptance,
+re-registration or READ does not erase retained failures. Settings reads this
+status on opening and through **刷新投递状态**, without permission requests,
+subscription mutations, push sends or unread refreshes. It is not a live stream.
+The host report uses safe codes and messages with the same bounded facts;
+its local error `status` is not the upstream HTTP status. No endpoint, subscription
+generation, key, credential, payload, raw response/header or exception text is
+included in reports or delivery status.
+
 私有 `push-config.json` 保存 VAPID 和设备订阅，不包含未读账本。
 模块配置接受 `pushDelayMs`（0–60000，默认 3000）、`vapidSubject` 与 `extraPushHosts`，
 拒绝未知字段。默认 subject 为本仓库 HTTPS 地址；额外推送主机最多 16 个明确公共 DNS 名称，

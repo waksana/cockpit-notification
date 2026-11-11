@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import type { ServerEvent } from '@waksana/cockpit-module-sdk';
 import { activate } from './index.ts';
 import { applyUnreadDelta, parseReadResult, parseSnapshot, type NotificationPayload } from '../shared/protocol.ts';
-import { ask, fixture, flush, invoke, key, message, subscription, turn, observation } from './test-fixtures.ts';
-import type { SendOutcome } from './push.ts';
+import { sendResult, ask, fixture, flush, invoke, key, message, subscription, turn, observation } from './test-fixtures.ts';
+import type { SendResult } from './push.ts';
+import { parseDeliveryStatus } from '../shared/delivery.ts';
 
 test('activation rejects a host without generic module events instead of accepting unsynchronized reads', t => {
   const f = fixture(t);
@@ -16,6 +17,43 @@ test('activation rejects a host without generic module events instead of accepti
     code: 'HOST_EVENTS_UNAVAILABLE',
     message: 'Notification deltas require the paired host module-event transport',
   });
+});
+
+test('subscription delivery status preserves safe failure history across later acceptance and read receipts', async t => {
+  let result: SendResult = { outcome: 'FAILED', phase: 'response', upstreamStatus: 403, retryAfterSeconds: 30 };
+  const f = fixture(t, async () => ({ ...result, endpoint: 'synthetic-secret-endpoint',
+    keys: 'synthetic-secret-keys', body: 'synthetic-secret-response' }));
+  const sub = subscription();
+  const response = await invoke(f.backend, 'POST', '/subscriptions', { subscription: sub });
+  const id = (response.body as { id: string }).id;
+  await f.emit(turn('rejected'));
+  await f.clock.advance(3000);
+  const readDelivery = async () => {
+    const response = await invoke(f.backend, 'GET', '/subscriptions/:id', undefined, { id });
+    const serialized = JSON.stringify(response);
+    for (const secret of ['synthetic-secret', sub.endpoint, sub.keys.auth, sub.keys.p256dh]) {
+      assert.ok(!serialized.includes(secret));
+      assert.ok(!JSON.stringify(f.errors).includes(secret));
+    }
+    return parseDeliveryStatus((response.body as { delivery: unknown }).delivery);
+  };
+  const failure = (await readDelivery()).lastFailure!;
+  assert.equal(failure.result.upstreamStatus, 403);
+  assert.equal((f.errors[0] as { code: string }).code, 'PUSH_HTTP_REJECTED');
+  assert.match((f.errors[0] as Error).message, /phase=response upstreamStatus=403 retryAfterSeconds=30/);
+  await invoke(f.backend, 'POST', '/subscriptions', { subscription: sub });
+  assert.deepEqual((await readDelivery()).lastFailure, failure);
+  result = sendResult('ACCEPTED');
+  await f.emit(turn('accepted'));
+  await f.clock.advance(3000);
+  const status = await readDelivery();
+  assert.equal(status.latest.result.outcome, 'ACCEPTED');
+  assert.deepEqual(status.lastFailure, failure);
+  assert.equal(status.lastAcceptedAt, f.clock.now());
+  assert.equal((await f.state()).total, 2);
+  await invoke(f.backend, 'POST', '/read', { generation: (await f.state()).generation, keys: [key('rejected')] });
+  assert.equal((await f.state()).total, 1);
+  assert.deepEqual(await readDelivery(), status);
 });
 
 test('state/read HTTP contracts publish contiguous atomic deltas and return compact idempotent receipts', async t => {
@@ -74,7 +112,7 @@ test('backend subscribes only to live assistant messages; restart starts empty w
   await f.emit(turn('before-restart'));
   f.backend.dispose?.();
   const restarted = activate({ ...f.context, signal: new AbortController().signal, publish() {} },
-    { clock: f.clock, sender: async () => 'ACCEPTED' });
+    { clock: f.clock, sender: async () => sendResult('ACCEPTED') });
   t.after(() => restarted.dispose?.());
   assert.equal(parseSnapshot((await invoke(restarted, 'GET', '/state')).body).total, 0);
   await restarted.events!.handle(message('fresh').at(-1)!);
@@ -87,7 +125,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
   for (const elapsed of [15 * 60_000 - 1, 15 * 60_000, 15 * 60_000 + 1, 24 * 60 * 60_000]) {
     for (const split of [1, 2, 3]) {
       const sent: NotificationPayload[] = [];
-      const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+      const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
       await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
       const events = turn('long', { content: '**Long reply** completed' });
       await f.emit(events.slice(0, split));
@@ -121,7 +159,7 @@ test('long replies cross the former 15-minute boundary without losing unread, id
 test('long ask waits and later abort/error never retract a published final or clear READ identities', async t => {
   for (const ending of ['abort', 'session.error', 'assistant.error', 'assistant.idle']) {
     const sent: NotificationPayload[] = [];
-    const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+    const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
     await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
     await f.emit(turn('known-unread'));
     const generation = (await f.state()).generation;
@@ -172,7 +210,7 @@ test('finals have no per-turn quota; invalid identity reports honestly and later
 
 test('tool-bearing messages are ignored and every tool-free reply, with or without phase, enters unread immediately', async t => {
   const sent: NotificationPayload[] = [];
-  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
   await f.emit([turn()[0]!]);
   for (let index = 0; index < 1000; index++) await f.emit(message(`ordinary-${index}`,
@@ -235,7 +273,7 @@ test('host ask add/null/replacement use requestId and retire instead of fabricat
 
 test('publication failures are reported after commit while READ receipts remain usable for reconciliation', async t => {
   let sends = 0;
-  const f = fixture(t, async () => { sends++; return 'ACCEPTED'; });
+  const f = fixture(t, async () => { sends++; return sendResult('ACCEPTED'); });
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
   const publish = f.context.publish;
   let attempts = 0;
@@ -316,7 +354,7 @@ test('session deletion/rewind retire known reminders and prevent duplicate resur
 
 test('rapid READ/retire cancels delayed sends and duplicate NEW cannot reschedule', async t => {
   const sent: NotificationPayload[] = [];
-  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
   const events = turn('quick');
   await f.emit(events);
@@ -334,7 +372,7 @@ test('rapid READ/retire cancels delayed sends and duplicate NEW cannot reschedul
 
 test('multiple devices get a reply excerpt and current session title while U and SSE retain only identities', async t => {
   const sent: { id: string; payload: NotificationPayload }[] = [];
-  const f = fixture(t, async (device, payload) => { sent.push({ id: device.id, payload }); return 'ACCEPTED'; });
+  const f = fixture(t, async (device, payload) => { sent.push({ id: device.id, payload }); return sendResult('ACCEPTED'); });
   for (const name of ['one', 'two']) await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(name) });
   const sessionId = 'session/with-space%value';
   await f.control({ type: 'session/patch', sessionId, title: '更新前的标题' });
@@ -364,7 +402,7 @@ test('multiple devices get a reply excerpt and current session title while U and
 
 test('ask push uses the native question excerpt without replaying historical asks from metadata snapshots', async t => {
   const sent: NotificationPayload[] = [];
-  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
   await f.control({ type: 'snapshot', sessions: [{
     sessionId: 'session-a', title: '发布准备', ask: { requestId: 'historical', question: '不要补发的历史提问' },
@@ -388,7 +426,7 @@ test('ask push uses the native question excerpt without replaying historical ask
 
 test('early READ prevents reply excerpts from creating a push, and missing titles use session identity', async t => {
   const sent: NotificationPayload[] = [];
-  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
   await invoke(f.backend, 'POST', '/read', { generation: (await f.state()).generation, keys: [key('early')] });
   await f.emit(turn('early', { content: '已经读过，不应推送这段摘要' }));
@@ -402,7 +440,7 @@ test('early READ prevents reply excerpts from creating a push, and missing title
 
 test('no targets at due time means no backfill after device registration', async t => {
   let sends = 0;
-  const f = fixture(t, async () => { sends++; return 'ACCEPTED'; });
+  const f = fixture(t, async () => { sends++; return sendResult('ACCEPTED'); });
   await f.emit(turn('no-targets'));
   await f.clock.advance(3000);
   await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription() });
@@ -419,7 +457,7 @@ test('DELETE then re-registering the same endpoint cannot revive queued delivery
   const pending: (() => void)[] = [];
   const f = fixture(t, async (_device, payload) => {
     sent.push(payload);
-    return new Promise(resolve => { pending.push(() => resolve('ACCEPTED')); });
+    return new Promise(resolve => { pending.push(() => resolve(sendResult('ACCEPTED'))); });
   });
   const device = subscription();
   const registration = await invoke(f.backend, 'POST', '/subscriptions', { subscription: device });
@@ -442,7 +480,7 @@ test('DELETE then re-registering the same endpoint cannot revive queued delivery
 });
 
 test('READ during first send stops unsent devices; started completion cannot resurrect entry', async t => {
-  let complete!: (value: SendOutcome) => void;
+  let complete!: (value: SendResult) => void;
   let sends = 0;
   const f = fixture(t, async () => { sends++; return new Promise(resolve => { complete = resolve; }); });
   for (const name of ['one', 'two']) await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(name) });
@@ -450,7 +488,7 @@ test('READ during first send stops unsent devices; started completion cannot res
   await f.clock.advance(3000);
   assert.equal(sends, 1);
   await invoke(f.backend, 'POST', '/read', { generation: (await f.state()).generation, keys: [key('during-send')] });
-  complete('ACCEPTED');
+  complete(sendResult('ACCEPTED'));
   await flush();
   assert.equal(sends, 1);
   assert.equal((await f.state()).total, 0);
@@ -462,7 +500,7 @@ test('failed and unknown push outcomes preserve unread and never retry or expose
     const f = fixture(t, async () => {
       sends++;
       if (outcome === 'throw') throw new Error('synthetic-secret-provider-response');
-      return outcome;
+      return sendResult(outcome);
     });
     await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscription(outcome) });
     await f.emit(turn(outcome));
@@ -492,7 +530,7 @@ test('subscription routes return only opaque identity and snapshot; lifecycle re
   assert.ok(!persisted.includes('synthetic-secret-body'));
   f.backend.dispose?.();
   const restarted = activate({ ...f.context, signal: new AbortController().signal, publish() {} },
-    { clock: f.clock, sender: async () => 'ACCEPTED' });
+    { clock: f.clock, sender: async () => sendResult('ACCEPTED') });
   t.after(() => restarted.dispose?.());
   const state = parseSnapshot((await invoke(restarted, 'GET', '/state')).body);
   assert.notEqual(state.generation, body.generation);
@@ -506,7 +544,7 @@ test('subscription routes return only opaque identity and snapshot; lifecycle re
 
 test('Edge WNS endpoints pass the actual subscription route without disclosing channel URLs or keys', async t => {
   const sent: NotificationPayload[] = [];
-  const f = fixture(t, async (_device, payload) => { sent.push(payload); return 'ACCEPTED'; });
+  const f = fixture(t, async (_device, payload) => { sent.push(payload); return sendResult('ACCEPTED'); });
   const subscriptionValue = { ...subscription(), endpoint: 'https://wns2-fixture.notify.windows.com/w/?token=synthetic-channel' };
   const response = await invoke(f.backend, 'POST', '/subscriptions', { subscription: subscriptionValue });
   assert.equal(response.status ?? 200, 200);
@@ -525,7 +563,7 @@ test('Edge WNS endpoints pass the actual subscription route without disclosing c
 
 test('abort clears pending work, aborts started send, and fences late callbacks and route requests', async t => {
   let signal: AbortSignal | undefined;
-  let complete!: (value: SendOutcome) => void;
+  let complete!: (value: SendResult) => void;
   let sends = 0;
   const f = fixture(t, async (_device, _payload, value) => {
     signal = value;
@@ -539,7 +577,7 @@ test('abort clears pending work, aborts started send, and fences late callbacks 
   f.controller.abort();
   assert.equal(signal!.aborted, true);
   assert.equal(f.clock.timers.size, 0);
-  complete('UNKNOWN');
+  complete(sendResult('UNKNOWN'));
   await flush();
   await f.emit(turn('late'));
   await f.control(ask('late'));

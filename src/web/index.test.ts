@@ -885,6 +885,32 @@ test('device settings reflect registration, permissions, initialization and pend
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
 });
 
+test('settings retain failure diagnostics alongside later service acceptance without claiming READ', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
+  const status: DeviceStatus = { ...bridge.getSnapshot(), subscribed: true, registered: true, delivery: {
+    latest: { at: 2000, result: { outcome: 'ACCEPTED', phase: 'response', upstreamStatus: 201 } },
+    lastFailure: { at: 1000, result: { outcome: 'FAILED', phase: 'response', upstreamStatus: 410 },
+      invalidation: 'persistence-failed' },
+    lastAcceptedAt: 2000,
+  } };
+  bridge.getSnapshot = () => status;
+  let refreshes = 0;
+  bridge.refreshSubscription = async () => { refreshes++; };
+  const section = f.settings(frontend);
+  assert.match(text(section), /HTTP 201/);
+  assert.match(text(section), /最近失败记录.*HTTP 410/);
+  assert.match(text(section), /仅在内存停用，保存失败/);
+  assert.match(text(section), /不代表设备收到、展示或用户已读/);
+  assert.match(text(section), /不会清除历史失败/);
+  const before = refreshes;
+  click(control(section, '刷新投递状态'));
+  assert.equal(refreshes, before + 1);
+  assert.equal(f.calls.length, 1);
+});
+
 test('settings unmount does not dispose accepted device work; stale callbacks cannot act after module stop', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);

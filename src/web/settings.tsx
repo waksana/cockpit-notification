@@ -1,5 +1,18 @@
 import type { ModuleFrontendContext } from '@waksana/cockpit-module-sdk/frontend';
 import type { DeviceBridge, DeviceStatus } from './device.ts';
+import type { DeliveryAttempt } from '../shared/delivery.ts';
+
+function deliveryDescription(attempt: DeliveryAttempt) {
+  const { result } = attempt;
+  const detail = result.phase === 'preparation' ? '请求构造失败' :
+    result.phase === 'response' ? `推送服务 HTTP ${result.upstreamStatus}` :
+      `受理结果未知（${result.networkCategory ?? 'other'}）`;
+  const invalidation = attempt.invalidation === 'removed' ? '；失效订阅已移除' :
+    attempt.invalidation === 'superseded' ? '；旧订阅结果未影响新登记' :
+      attempt.invalidation === 'persistence-failed' ? '；失效订阅仅在内存停用，保存失败，重启可能恢复' : '';
+  return `${new Date(attempt.at).toLocaleString()}：${detail}${invalidation}` +
+    (result.retryAfterSeconds === undefined ? '' : `；Retry-After ${result.retryAfterSeconds}s（不自动重试）`);
+}
 
 function cannotToggle(status: DeviceStatus) {
   return status.stopped || status.initializing || status.busy ||
@@ -27,6 +40,7 @@ export function createDeviceSettings(context: ModuleFrontendContext, device: Dev
     const status = React.useSyncExternalStore(device.subscribe, device.getSnapshot, device.getSnapshot);
     const id = React.useId();
     React.useLayoutEffect(device.observeErrors, [device]);
+    React.useEffect(() => { void device.refreshSubscription(); }, [device]);
     const inactive = () => isStopped() || context.signal.aborted;
     const pending = status.initializing || status.busy;
     const error = status.errorReported ? null : status.error;
@@ -60,6 +74,18 @@ export function createDeviceSettings(context: ModuleFrontendContext, device: Dev
         通知组件更新尚未激活；如操作失败，请关闭旧窗口后重试。
       </p>}
       {error && <p id={`${id}-error`} className="ck-status-text ck-danger cn-device-description" role="alert">{error}</p>}
+      {status.delivery && <div className="ck-status-text ck-text-secondary cn-device-description">
+        <p>最近投递：{deliveryDescription(status.delivery.latest)}</p>
+        {status.delivery.lastFailure && <p>最近失败记录：{deliveryDescription(status.delivery.lastFailure)}</p>}
+        {status.delivery.lastAcceptedAt !== undefined && <p>
+          最近服务受理：{new Date(status.delivery.lastAcceptedAt).toLocaleString()}；不代表设备收到、展示或用户已读。
+        </p>}
+        <p>仅保留本次运行的最近记录；重新登记或后续受理不会清除历史失败。</p>
+      </div>}
+      {status.subscribed && <button type="button" className="ck-button"
+        disabled={inactive() || status.stopped || pending} onClick={() => {
+          if (!inactive()) void device.refreshSubscription();
+        }}>刷新投递状态</button>}
       {status.subscribed && !status.registered && <div className="ck-actions">
         <button type="button" className="ck-button" disabled={inactive() || status.stopped || pending} onClick={cleanup}>
           取消残留订阅
