@@ -1,5 +1,5 @@
 import type { ModuleFrontendContext } from '@waksana/cockpit-module-sdk/frontend';
-import type { DeviceBridge, DeviceStatus } from './device.ts';
+import { requiresSubscriptionRenewal, type DeviceBridge, type DeviceStatus } from './device.ts';
 import type { DeliveryAttempt } from '../shared/delivery.ts';
 
 function deliveryDescription(attempt: DeliveryAttempt) {
@@ -26,11 +26,14 @@ function description(status: DeviceStatus) {
   if (!status.supported) return '当前环境不支持系统通知，请使用支持 Web Push 的安全连接或已安装的 PWA。';
   if (status.permission === 'denied') return '通知权限已被浏览器或系统阻止。请在浏览器或系统设置中允许后重新打开页面；已登记的通知仍可关闭。';
   if (status.needsResubscribe) return '订阅密钥已变更，请关闭后重新开启本设备通知。';
+  if (status.subscribed && requiresSubscriptionRenewal(status)) {
+    return '推送服务已判定原订阅失效。开启时会先取消本浏览器的旧订阅，成功后创建并登记新订阅；失败时不会继续登记旧订阅。';
+  }
   if (status.permission === 'default') return status.registered
     ? '本设备已登记，但浏览器尚未允许通知。请关闭后重新开启以请求权限。'
     : '开启时将请求浏览器通知权限。';
   if (status.registered) return '本设备已登记通知；实际送达仍取决于浏览器、系统和网络。';
-  if (status.subscribed) return '浏览器订阅仍在，但服务端尚未登记通知。可重新开启，或取消残留订阅。';
+  if (status.subscribed) return '浏览器订阅仍在，但服务端尚未登记通知。开启时会检查：有明确失效记录则先取消旧订阅并重新创建，否则尝试登记现有订阅。记录可能因服务重启而缺失，未登记不等于已过期；如需重建，可先取消残留订阅，成功后再开启。';
   return '仅管理本设备的系统通知，不影响未读标记和其他设备。';
 }
 

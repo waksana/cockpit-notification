@@ -260,6 +260,36 @@ its local error `status` is not the upstream HTTP status. No endpoint, subscript
 generation, key, credential, payload, raw response/header or exception text is
 included in reports or delivery status.
 
+### Explicit browser subscription renewal
+
+Opening settings, bootstrap and **刷新投递状态** remain read-only. Only the user's
+explicit enable gesture can request permission or change a browser subscription.
+If the browser still holds a same-VAPID subscription, enable first reads its
+current server registration/diagnostics rather than trusting a cached settings
+snapshot. A missing server registration plus a retained 404/410 failure marked
+`removed` or `persistence-failed` is actionable expiry evidence: enable waits for
+browser `unsubscribe()` to return true, then calls `subscribe()` and registers
+the replacement. It never re-POSTs that known-expired browser subscription.
+This recovery path does not DELETE the endpoint's server record, so it cannot
+delete a newer server registration created while the read was in flight.
+
+A currently registered subscription or a `superseded` old failure does not
+trigger renewal. Lookup failure/malformed data stops the action before browser
+mutation. Failed/false unsubscribe stops before replacement creation or POST;
+failed subscribe leaves the browser unsubscribed and the error visible; a failed
+replacement POST leaves only the new browser subscription available for a later
+explicit registration retry. STOP fences follow-on steps. Existing VAPID-change
+and explicit disable/cleanup behavior is unchanged.
+
+History is bounded and lost on server restart. `registered:false` alone is not
+expiry evidence: a previous registration might simply have failed or been
+disabled. In that case enable retains the existing-subscription registration
+retry. Settings explains this uncertainty and the existing explicit alternative:
+**取消残留订阅**, wait for successful completion, then enable to create/register
+a fresh browser subscription. No permission prompts, cleanup or renewal run
+automatically to compensate for missing history. Renewal does not replay old
+notifications, change unread/read state, clear host history or claim delivery.
+
 私有 `push-config.json` 保存 VAPID 和设备订阅，不包含未读账本。
 模块配置接受 `pushDelayMs`（0–60000，默认 3000）、`vapidSubject` 与 `extraPushHosts`，
 拒绝未知字段。默认 subject 为本仓库 HTTPS 地址；额外推送主机最多 16 个明确公共 DNS 名称，

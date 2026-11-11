@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import type { ModuleFrontendContext } from '@waksana/cockpit-module-sdk/frontend';
-import { DeviceBridge, sameKey, subscriptionId, vapidBytes } from './device.ts';
+import { DeviceBridge, requiresSubscriptionRenewal, sameKey, subscriptionId, vapidBytes } from './device.ts';
+import type { DeliveryStatus } from '../shared/delivery.ts';
 import type { Snapshot } from '../shared/protocol.ts';
 
 const scope = 'https://host.test/deployment/_modules/workers/cockpit-notification/';
@@ -32,6 +33,7 @@ function fixture(t: { after(fn: () => void): void }) {
   let unsubscriptions = 0;
   let installed = true;
   let registered = false;
+  let delivery: DeliveryStatus | undefined;
   let rejectUnsubscribe = false;
   let updateError: Error | null = null;
   let authoritativeId: string | null = null;
@@ -41,8 +43,8 @@ function fixture(t: { after(fn: () => void): void }) {
   let subscription: PushSubscription | null = null;
   const registrationListeners = new Set<() => void>();
   const workerListeners = new Set<() => void>();
-  const createSubscription = (applicationServerKey = key): PushSubscription => ({
-    endpoint: 'https://push.synthetic.test/device-only-fixture',
+  const createSubscription = (applicationServerKey = key, name = 'device-only-fixture'): PushSubscription => ({
+    endpoint: `https://push.synthetic.test/${name}`,
     options: { userVisibleOnly: true, applicationServerKey: applicationServerKey.buffer as ArrayBuffer },
     expirationTime: null,
     getKey() { return null; },
@@ -67,7 +69,7 @@ function fixture(t: { after(fn: () => void): void }) {
     async update() { updates++; if (updateError) throw updateError; return registration; },
     pushManager: {
       async getSubscription() { return subscription; },
-      async subscribe() { subscriptions++; subscription = createSubscription(); return subscription; },
+      async subscribe() { subscriptions++; subscription = createSubscription(key, `created-${subscriptions}`); return subscription; },
     },
   };
   replace('location', new URL('https://host.test/deployment/session/session-a'));
@@ -99,7 +101,7 @@ function fixture(t: { after(fn: () => void): void }) {
         registered = true;
         return Response.json({ id: authoritativeId ?? await subscriptionId(subscription!), generation: state.generation, state });
       }
-      return Response.json({ registered });
+      return Response.json({ registered, ...(delivery ? { delivery } : {}) });
     },
   } as unknown as ModuleFrontendContext;
   const bridge = new DeviceBridge(context);
@@ -122,6 +124,7 @@ function fixture(t: { after(fn: () => void): void }) {
     setPermission: (value: NotificationPermission) => { permission = value; },
     setInstalled: (value: boolean) => { installed = value; },
     setRegistered: (value: boolean) => { registered = value; },
+    setDelivery: (value: DeliveryStatus | undefined) => { delivery = value; },
     setSubscription: (value: PushSubscription | null) => { subscription = value; },
     rejectUnsubscribe: () => { rejectUnsubscribe = true; },
   };
@@ -223,9 +226,10 @@ for (const operation of ['enable', 'disable'] as const) {
     const gate = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { entered = resolve; });
     const request = f.context.request;
+    let first = true;
     f.context.request = async (path, init) => {
       const response = await request(path, init);
-      if (!init?.method || init.method === 'GET') { entered(); await gate; }
+      if (first && (!init?.method || init.method === 'GET')) { first = false; entered(); await gate; }
       return response;
     };
     const bootstrapping = f.bridge.bootstrap();
@@ -263,6 +267,222 @@ test('late worker lookup cannot detach a registration installed by explicit enab
   await f.bridge.disable();
   assert.equal(f.bridge.getSnapshot().registered, false);
   assert.equal(f.requests.at(-1)?.init?.method, 'DELETE');
+});
+
+function expiredDelivery(upstreamStatus = 410, invalidation: 'removed' | 'persistence-failed' | 'superseded' = 'removed'): DeliveryStatus {
+  const attempt = { at: 1000, result: { outcome: 'FAILED' as const, phase: 'response' as const, upstreamStatus }, invalidation };
+  return { latest: attempt, lastFailure: attempt };
+}
+
+for (const upstreamStatus of [404, 410]) {
+  for (const invalidation of ['removed', 'persistence-failed'] as const) {
+    test(`explicit enable renews a ${upstreamStatus}/${invalidation} browser subscription before registration`, async t => {
+      const f = fixture(t);
+      const old = f.createSubscription();
+      const delivery = expiredDelivery(upstreamStatus, invalidation);
+      f.setSubscription(old);
+      f.setDelivery(delivery);
+      await f.bridge.bootstrap();
+      await f.bridge.refreshSubscription();
+      assert.equal(requiresSubscriptionRenewal(f.bridge.getSnapshot()), true);
+      assert.deepEqual(f.counts(), { permissionRequests: 0, registrations: 0, subscriptions: 0, unsubscriptions: 0 });
+      const request = f.context.request;
+      f.context.request = async (path, init) => {
+        assert.notEqual(init?.method, 'DELETE', 'expiry recovery must not delete a newer registration by endpoint');
+        if (init?.method === 'POST') {
+          assert.equal(f.counts().unsubscriptions, 1);
+          assert.equal(f.counts().subscriptions, 1);
+          assert.notEqual(JSON.parse(String(init.body)).subscription.endpoint, old.endpoint);
+        }
+        return request(path, init);
+      };
+      await f.bridge.enable();
+      assert.equal(f.bridge.getSnapshot().registered, true);
+      assert.equal(f.bridge.getSnapshot().subscribed, true);
+      assert.deepEqual(f.bridge.getSnapshot().delivery, delivery, 'renewal does not erase the observed failure');
+      assert.equal(requiresSubscriptionRenewal(f.bridge.getSnapshot()), false);
+      assert.deepEqual(f.counts(), { permissionRequests: 0, registrations: 0, subscriptions: 1, unsubscriptions: 1 });
+      assert.equal(f.requests.filter(item => item.init?.method === 'POST').length, 1);
+      assert.deepEqual(f.errors, []);
+    });
+  }
+}
+
+test('enable uses a fresh subscription-specific lookup, not stale displayed expiry or another device history', async t => {
+  for (const replacement of ['registered', 'new-browser-endpoint', 'superseded', 'history-lost'] as const) {
+    const f = fixture(t);
+    f.setSubscription(f.createSubscription());
+    f.setDelivery(expiredDelivery());
+    await f.bridge.bootstrap();
+    assert.equal(requiresSubscriptionRenewal(f.bridge.getSnapshot()), true);
+    if (replacement === 'registered') f.setRegistered(true);
+    if (replacement === 'new-browser-endpoint') f.setSubscription(f.createSubscription(key, 'replacement-browser'));
+    if (replacement === 'superseded') f.setDelivery(expiredDelivery(410, 'superseded'));
+    if (replacement === 'history-lost' || replacement === 'new-browser-endpoint') f.setDelivery(undefined);
+    await f.bridge.enable();
+    assert.equal(f.bridge.getSnapshot().registered, true);
+    assert.equal(f.counts().unsubscriptions, 0);
+    assert.equal(f.counts().subscriptions, 0);
+    assert.equal(f.requests.some(item => item.init?.method === 'DELETE'), false);
+    assert.deepEqual(f.errors, []);
+  }
+});
+
+for (const reason of ['false', 'throw'] as const) {
+  test(`expired unsubscribe ${reason} cannot create, re-POST or claim a replacement`, async t => {
+    const f = fixture(t);
+    const old = f.createSubscription();
+    if (reason === 'false') f.rejectUnsubscribe();
+    else old.unsubscribe = async () => { throw new Error('synthetic-secret-provider-detail'); };
+    f.setSubscription(old);
+    f.setDelivery(expiredDelivery());
+    await f.bridge.bootstrap();
+    await f.bridge.enable();
+    assert.equal(f.counts().subscriptions, 0);
+    assert.equal(f.requests.some(item => item.init?.method), false);
+    assert.equal(f.bridge.getSnapshot().registered, false);
+    assert.equal(f.bridge.getSnapshot().subscribed, true);
+    assert.match(f.bridge.getSnapshot().error!, /未创建替代订阅/);
+    assert.doesNotMatch(f.bridge.getSnapshot().error!, /synthetic-secret/);
+    assert.equal(f.errors.length, 1);
+    await f.bridge.enable();
+    assert.equal(f.requests.some(item => item.init?.method === 'POST'), false);
+  });
+}
+
+test('renewal waits for unsubscribe success and rejects duplicate enable while pending', async t => {
+  const f = fixture(t);
+  const old = f.createSubscription();
+  const pending = gate();
+  const started = gate();
+  const unsubscribe = old.unsubscribe.bind(old);
+  old.unsubscribe = async () => { started.release(); await pending.promise; return unsubscribe(); };
+  f.setSubscription(old);
+  f.setDelivery(expiredDelivery());
+  await f.bridge.bootstrap();
+  const enabling = f.bridge.enable();
+  await started.promise;
+  await f.bridge.enable();
+  assert.equal(f.counts().subscriptions, 0);
+  assert.equal(f.requests.some(item => item.init?.method === 'POST'), false);
+  pending.release();
+  await enabling;
+  assert.equal(f.counts().subscriptions, 1);
+  assert.equal(f.counts().unsubscriptions, 1);
+});
+
+test('failed replacement creation leaves the old subscription removed without claiming registration', async t => {
+  const f = fixture(t);
+  f.setSubscription(f.createSubscription());
+  f.setDelivery(expiredDelivery());
+  await f.bridge.bootstrap();
+  const registration = await navigator.serviceWorker.getRegistration();
+  assert.ok(registration);
+  registration.pushManager.subscribe = async () => { throw new Error('Synthetic subscribe failure'); };
+  await f.bridge.enable();
+  assert.equal(f.counts().unsubscriptions, 1);
+  assert.equal(f.bridge.getSnapshot().subscribed, false);
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.match(f.bridge.getSnapshot().error!, /subscribe failure/);
+  assert.equal(f.requests.some(item => item.init?.method === 'POST' || item.init?.method === 'DELETE'), false);
+});
+
+test('renewal registration rejection retains only the new browser subscription for an explicit retry', async t => {
+  const f = fixture(t);
+  const old = f.createSubscription();
+  f.setSubscription(old);
+  const oldId = await subscriptionId(old);
+  const request = f.context.request;
+  let reject = true;
+  const bodies: string[] = [];
+  f.context.request = async (path, init) => {
+    if (!init?.method && path === `/subscriptions/${oldId}`) {
+      return Response.json({ registered: false, delivery: expiredDelivery() });
+    }
+    if (init?.method === 'POST') {
+      bodies.push(String(init.body));
+      if (reject) return Response.json({ message: 'Registration unavailable' }, { status: 503 });
+    }
+    return request(path, init);
+  };
+  await f.bridge.bootstrap();
+  await f.bridge.enable();
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.equal(f.bridge.getSnapshot().subscribed, true);
+  assert.equal(f.counts().subscriptions, 1);
+  assert.equal(f.counts().unsubscriptions, 1);
+  reject = false;
+  await f.bridge.enable();
+  assert.equal(f.bridge.getSnapshot().registered, true);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+  assert.notEqual(JSON.parse(bodies[0]!).subscription.endpoint, old.endpoint);
+  assert.equal(f.counts().subscriptions, 1);
+  assert.equal(f.counts().unsubscriptions, 1);
+});
+
+for (const stage of ['lookup', 'unsubscribe', 'subscribe'] as const) {
+  test(`STOP during expiry ${stage} prevents subsequent renewal or registration`, async t => {
+    const f = fixture(t);
+    const old = f.createSubscription();
+    f.setSubscription(old);
+    f.setDelivery(expiredDelivery());
+    await f.bridge.bootstrap();
+    const started = gate();
+    const pending = gate();
+    const request = f.context.request;
+    if (stage === 'lookup') {
+      f.context.request = async (path, init) => { started.release(); await pending.promise; return request(path, init); };
+    } else if (stage === 'unsubscribe') {
+      const unsubscribe = old.unsubscribe.bind(old);
+      old.unsubscribe = async () => { started.release(); await pending.promise; return unsubscribe(); };
+    } else {
+      const registration = await navigator.serviceWorker.getRegistration();
+      assert.ok(registration);
+      const subscribe = registration.pushManager.subscribe.bind(registration.pushManager);
+      registration.pushManager.subscribe = async options => {
+        const subscription = await subscribe(options);
+        started.release();
+        await pending.promise;
+        return subscription;
+      };
+    }
+    const enabling = f.bridge.enable();
+    await started.promise;
+    f.bridge.dispose();
+    const stopped = f.bridge.getSnapshot();
+    pending.release();
+    await enabling;
+    assert.equal(f.bridge.getSnapshot(), stopped);
+    assert.equal(f.counts().subscriptions, stage === 'subscribe' ? 1 : 0);
+    assert.equal(f.requests.some(item => item.init?.method === 'POST'), false);
+  });
+}
+
+test('failed or malformed current registration lookup does not mutate an existing browser subscription', async t => {
+  for (const value of ['network', 'malformed'] as const) {
+    const f = fixture(t);
+    f.setSubscription(f.createSubscription());
+    await f.bridge.bootstrap();
+    f.context.request = async () => {
+      if (value === 'network') throw new Error('Synthetic lookup unavailable');
+      return Response.json({ registered: 'unknown' });
+    };
+    await f.bridge.enable();
+    assert.equal(f.counts().unsubscriptions, 0);
+    assert.equal(f.counts().subscriptions, 0);
+    assert.equal(f.bridge.getSnapshot().registered, false);
+    assert.ok(f.bridge.getSnapshot().error);
+    assert.equal(f.requests.some(item => item.init?.method === 'POST'), false);
+  }
+});
+
+test('unknown, non-expiry and superseded failures never infer browser expiry', () => {
+  for (const delivery of [
+    undefined, expiredDelivery(403), expiredDelivery(429), expiredDelivery(500), expiredDelivery(410, 'superseded'),
+    { latest: { at: 1000, result: { outcome: 'UNKNOWN', phase: 'transport', networkCategory: 'timeout' } } } as const,
+  ]) assert.equal(requiresSubscriptionRenewal({ registered: false, delivery }), false);
+  assert.equal(requiresSubscriptionRenewal({ registered: true, delivery: expiredDelivery() }), false);
 });
 
 test('an explicit enable retry reuses the browser subscription after server registration was rejected', async t => {
@@ -304,8 +524,10 @@ test('an obsolete subscription lookup failure cannot replace the successful muta
   const gate = new Promise<void>(resolve => { release = resolve; });
   const started = new Promise<void>(resolve => { entered = resolve; });
   const request = f.context.request;
+  let first = true;
   f.context.request = async (path, init) => {
-    if (!init?.method || init.method === 'GET') {
+    if (first && (!init?.method || init.method === 'GET')) {
+      first = false;
       entered();
       await gate;
       return Response.json({ code: 'SYNTHETIC_ERROR', message: 'obsolete lookup' }, { status: 503 });
