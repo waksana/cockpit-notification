@@ -20,6 +20,12 @@ export interface DeviceStatus {
   errorReported: boolean;
   delivery?: DeliveryStatus;
 }
+export function requiresSubscriptionRenewal(status: Pick<DeviceStatus, 'registered' | 'delivery'>): boolean {
+  const failure = status.delivery?.lastFailure;
+  return !status.registered && failure?.result.phase === 'response' &&
+    (failure.result.upstreamStatus === 404 || failure.result.upstreamStatus === 410) &&
+    (failure.invalidation === 'removed' || failure.invalidation === 'persistence-failed');
+}
 export function vapidBytes(value: unknown): Uint8Array<ArrayBuffer> {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(value)) throw new Error('推送公钥无效');
   const bytes = Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/') + '='), char => char.charCodeAt(0));
@@ -182,13 +188,9 @@ export class DeviceBridge {
       this.publish({ subscribed: true, needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
       const id = await this.knownSubscriptionId(subscription);
       if (!current()) return;
-      const result = await responseJson(await this.context.request(`/subscriptions/${encodeURIComponent(id)}`, {
-        cache: 'no-store', signal: this.context.signal,
-      }));
+      const result = await this.readRegistration(id);
       if (!current()) return;
-      if (!record(result) || typeof result.registered !== 'boolean') throw new Error('设备订阅检查响应无效');
-      this.publish({ subscribed: true, registered: result.registered,
-        delivery: result.delivery === undefined ? undefined : parseDeliveryStatus(result.delivery),
+      this.publish({ subscribed: true, ...result,
         needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
     } catch (error) {
       if (current()) throw error;
@@ -199,6 +201,14 @@ export class DeviceBridge {
     const epoch = this.subscriptionEpoch;
     try { await this.checkSubscription(this.registration, epoch); }
     catch (error) { if (this.subscriptionCurrent(epoch)) this.fail(error); }
+  }
+  private async readRegistration(id: string): Promise<Pick<DeviceStatus, 'registered' | 'delivery'>> {
+    const result = await responseJson(await this.context.request(`/subscriptions/${encodeURIComponent(id)}`, {
+      cache: 'no-store', signal: this.context.signal,
+    }));
+    if (!record(result) || typeof result.registered !== 'boolean') throw new Error('设备订阅检查响应无效');
+    return { registered: result.registered,
+      delivery: result.delivery === undefined ? undefined : parseDeliveryStatus(result.delivery) };
   }
   private async knownSubscriptionId(subscription: PushSubscription) {
     const endpoint = new URL(subscription.endpoint).href;
@@ -333,6 +343,19 @@ export class DeviceBridge {
         await this.remove(subscription);
         this.ensureActive();
         subscription = null;
+      } else if (subscription) {
+        const id = await this.knownSubscriptionId(subscription);
+        this.ensureActive();
+        const status = await this.readRegistration(id);
+        this.ensureActive();
+        this.publish({ subscribed: true, ...status });
+        if (requiresSubscriptionRenewal(status)) {
+          // The server already retired this registration. Do not DELETE by endpoint:
+          // another tab may have registered a newer generation while this GET was in flight.
+          await this.unsubscribe(subscription);
+          this.ensureActive();
+          subscription = null;
+        }
       }
       if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
       this.ensureActive();
@@ -363,7 +386,13 @@ export class DeviceBridge {
     }
     this.publish({ registered: false });
     this.ensureActive();
-    if (!await subscription.unsubscribe()) throw new Error('服务端已停用，但浏览器未确认取消设备订阅，请重试');
+    await this.unsubscribe(subscription);
+  }
+  private async unsubscribe(subscription: PushSubscription) {
+    let removed: boolean;
+    try { removed = await subscription.unsubscribe(); }
+    catch { throw new Error('服务端已停用，但浏览器未确认取消设备订阅；未创建替代订阅，请重试'); }
+    if (!removed) throw new Error('服务端已停用，但浏览器未确认取消设备订阅；未创建替代订阅，请重试');
     this.ensureActive();
     this.subscriptionReference = null;
     this.publish({ subscribed: false, needsResubscribe: false });

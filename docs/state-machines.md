@@ -407,6 +407,22 @@ would require a separately agreed policy.
 Safe result fields, history bounds and the settings/API surface are defined in
 [delivery diagnostics](implementation.md#push-failures-and-delivery-diagnostics).
 
+#### Browser recovery after a rejected subscription
+
+| Input / condition | Result |
+| --- | --- |
+| Bootstrap/settings/refresh observes expired delivery | Show evidence; no permission request, unsubscribe, subscribe or registration write |
+| Explicit enable; fresh lookup is unregistered with retained 404/410 `removed`/`persistence-failed` | Await browser unsubscribe success, then subscribe and register a replacement; no endpoint DELETE |
+| Existing registered subscription, or only a superseded old rejection | Do not renew based on old failure history |
+| Unregistered with no expiry evidence (including server restart) | Retry current subscription registration; do not infer expiry; offer explicit residual cleanup then enable |
+| Lookup fails or unsubscribe fails/returns false | Stop before replacement creation or POST; expose error, never claim recovery |
+| Replacement subscribe fails | Old browser subscription remains removed; no registration success |
+| Replacement registration fails | Retain only the new browser subscription for an explicit retry, not the expired one |
+| STOP during lookup/unsubscribe/subscribe | No subsequent replacement or registration step |
+
+These are user-initiated browser lifecycle operations, not automatic push retries.
+See [explicit renewal](implementation.md#explicit-browser-subscription-renewal).
+
 ### 8.3 payload
 
 ```text

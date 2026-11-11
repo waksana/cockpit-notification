@@ -885,6 +885,36 @@ test('device settings reflect registration, permissions, initialization and pend
     component.boundary === 'managementHeader' || component.boundary === 'managementDetailHeader'), false);
 });
 
+test('settings explain explicit expiry renewal and missing-history cleanup without mutating subscriptions', async t => {
+  const f = fixture(t);
+  const frontend = await activate(f.context);
+  await settle();
+  const bridge = f.services.find(service => service.id === 'device-bridge')!.instance as DeviceBridge;
+  const failure = { at: 1000, result: { outcome: 'FAILED' as const, phase: 'response' as const, upstreamStatus: 410 },
+    invalidation: 'removed' as const };
+  let status: DeviceStatus = { ...bridge.getSnapshot(), supported: true, subscribed: true, registered: false,
+    permission: 'granted', delivery: { latest: failure, lastFailure: failure } };
+  bridge.getSnapshot = () => status;
+  const operations: string[] = [];
+  bridge.enable = async () => { operations.push('enable'); };
+  bridge.disable = async () => { operations.push('disable'); };
+  const section = f.settings(frontend);
+  assert.match(text(section), /先取消本浏览器的旧订阅，成功后创建并登记新订阅/);
+  assert.match(text(section), /失败时不会继续登记旧订阅/);
+  assert.deepEqual(operations, [], 'rendering a known failure never renews automatically');
+  click(control(section));
+  assert.deepEqual(operations, ['enable']);
+  status = { ...status, delivery: undefined };
+  const missing = f.settings(frontend);
+  assert.match(text(missing), /记录可能因服务重启而缺失，未登记不等于已过期/);
+  assert.match(text(missing), /先取消残留订阅，成功后再开启/);
+  click(control(missing, '取消残留订阅'));
+  assert.deepEqual(operations, ['enable', 'disable']);
+  status = { ...status, registered: true, delivery: { latest: failure, lastFailure: failure } };
+  assert.doesNotMatch(text(f.settings(frontend)), /推送服务已判定原订阅失效/);
+  assert.equal(f.calls.length, 1, 'recovery guidance does not fetch or change unread state');
+});
+
 test('settings retain failure diagnostics alongside later service acceptance without claiming READ', async t => {
   const f = fixture(t);
   const frontend = await activate(f.context);
