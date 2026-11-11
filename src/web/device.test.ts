@@ -153,6 +153,66 @@ test('activation bootstrap inspects an installed worker without permission, regi
   assert.equal(f.updates(), 1);
 });
 
+test('read-only delivery refresh exposes expired registration and retained history without retrying a push', async t => {
+  const f = fixture(t);
+  f.setSubscription(f.createSubscription());
+  f.setRegistered(true);
+  await f.bridge.bootstrap();
+  const failure = { at: 1000, result: { outcome: 'FAILED', phase: 'response', upstreamStatus: 410 },
+    invalidation: 'removed' };
+  let delivery = { latest: failure, lastFailure: failure, lastAcceptedAt: 500 };
+  let requests = 0;
+  f.context.request = async (_path, init) => {
+    assert.equal(init?.method, undefined);
+    requests++;
+    return Response.json({ registered: false, delivery });
+  };
+  await f.bridge.refreshSubscription();
+  assert.equal(f.bridge.getSnapshot().registered, false);
+  assert.deepEqual(f.bridge.getSnapshot().delivery, delivery);
+  delivery = { ...delivery, lastAcceptedAt: 2000 };
+  await f.bridge.refreshSubscription();
+  assert.deepEqual(f.bridge.getSnapshot().delivery?.lastFailure, failure);
+  assert.equal(f.bridge.getSnapshot().delivery?.lastAcceptedAt, 2000);
+  assert.equal(requests, 2);
+  assert.deepEqual(f.counts(), { permissionRequests: 0, registrations: 0, subscriptions: 0, unsubscriptions: 0 });
+});
+
+for (const initialCheck of ['bootstrap', 'refresh'] as const) {
+  for (const oldResponse of ['success', 'failure'] as const) {
+    test(`newer delivery refresh fences an older ${initialCheck} ${oldResponse}`, async t => {
+      const f = fixture(t);
+      f.setSubscription(f.createSubscription());
+      f.setRegistered(true);
+      if (initialCheck === 'refresh') await f.bridge.bootstrap();
+      const requested = gate();
+      const pending = gate();
+      let requests = 0;
+      const failure = { at: 1000, result: { outcome: 'FAILED', phase: 'response', upstreamStatus: 410 },
+        invalidation: 'removed' };
+      f.context.request = async () => {
+        requests++;
+        if (requests === 1) {
+          requested.release();
+          await pending.promise;
+          if (oldResponse === 'failure') throw new Error('obsolete error');
+          return Response.json({ registered: true });
+        }
+        return Response.json({ registered: false, delivery: { latest: failure, lastFailure: failure } });
+      };
+      const older = initialCheck === 'bootstrap' ? f.bridge.bootstrap() : f.bridge.refreshSubscription();
+      await requested.promise;
+      await f.bridge.refreshSubscription();
+      assert.equal(f.bridge.getSnapshot().registered, false);
+      pending.release();
+      await older;
+      assert.equal(f.bridge.getSnapshot().registered, false);
+      assert.deepEqual(f.bridge.getSnapshot().delivery?.lastFailure, failure);
+      assert.deepEqual(f.errors, []);
+    });
+  }
+}
+
 for (const operation of ['enable', 'disable'] as const) {
   test(`a late bootstrap subscription response cannot overwrite successful ${operation}`, async t => {
     const f = fixture(t);

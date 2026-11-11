@@ -2,6 +2,7 @@ import type { ModuleFrontendContext } from '@waksana/cockpit-module-sdk/frontend
 import { identity, parseUnreadEvent, record } from '../shared/protocol.ts';
 import type { MessageKey, Snapshot, UnreadSyncHint } from '../shared/protocol.ts';
 import { responseJson } from './store.ts';
+import { parseDeliveryStatus, type DeliveryStatus } from '../shared/delivery.ts';
 
 export interface DeviceStatus {
   supported: boolean;
@@ -17,6 +18,7 @@ export interface DeviceStatus {
   badgeSupported: boolean | null;
   error: string | null;
   errorReported: boolean;
+  delivery?: DeliveryStatus;
 }
 export function vapidBytes(value: unknown): Uint8Array<ArrayBuffer> {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(value)) throw new Error('推送公钥无效');
@@ -50,6 +52,7 @@ export class DeviceBridge {
   private latest: Snapshot | null = null;
   private busy = false;
   private subscriptionEpoch = 0;
+  private subscriptionCheck = 0;
   private controller = new AbortController();
   private updateFlight: Promise<void> | null = null;
   private registrationCleanup: (() => void)[] = [];
@@ -170,19 +173,32 @@ export class DeviceBridge {
     return !this.stopped && !this.context.signal.aborted && !this.busy && this.subscriptionEpoch === epoch;
   }
   private async checkSubscription(registration: ServiceWorkerRegistration, epoch: number) {
-    const subscription = await registration.pushManager.getSubscription();
-    if (!this.subscriptionCurrent(epoch)) return;
-    if (!subscription) { this.publish({ subscribed: false, registered: false, needsResubscribe: false }); return; }
-    this.publish({ subscribed: true, needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
-    const id = await this.knownSubscriptionId(subscription);
-    if (!this.subscriptionCurrent(epoch)) return;
-    const result = await responseJson(await this.context.request(`/subscriptions/${encodeURIComponent(id)}`, {
-      cache: 'no-store', signal: this.context.signal,
-    }));
-    if (!this.subscriptionCurrent(epoch)) return;
-    if (!record(result) || typeof result.registered !== 'boolean') throw new Error('设备订阅检查响应无效');
-    this.publish({ subscribed: true, registered: result.registered,
-      needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
+    const check = ++this.subscriptionCheck;
+    const current = () => this.subscriptionCurrent(epoch) && check === this.subscriptionCheck;
+    try {
+      const subscription = await registration.pushManager.getSubscription();
+      if (!current()) return;
+      if (!subscription) { this.publish({ subscribed: false, registered: false, needsResubscribe: false, delivery: undefined }); return; }
+      this.publish({ subscribed: true, needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
+      const id = await this.knownSubscriptionId(subscription);
+      if (!current()) return;
+      const result = await responseJson(await this.context.request(`/subscriptions/${encodeURIComponent(id)}`, {
+        cache: 'no-store', signal: this.context.signal,
+      }));
+      if (!current()) return;
+      if (!record(result) || typeof result.registered !== 'boolean') throw new Error('设备订阅检查响应无效');
+      this.publish({ subscribed: true, registered: result.registered,
+        delivery: result.delivery === undefined ? undefined : parseDeliveryStatus(result.delivery),
+        needsResubscribe: !sameKey(subscription, vapidBytes(this.context.config.vapidPublicKey)) });
+    } catch (error) {
+      if (current()) throw error;
+    }
+  }
+  async refreshSubscription() {
+    if (!this.registration || this.busy || this.stopped || this.context.signal.aborted) return;
+    const epoch = this.subscriptionEpoch;
+    try { await this.checkSubscription(this.registration, epoch); }
+    catch (error) { if (this.subscriptionCurrent(epoch)) this.fail(error); }
   }
   private async knownSubscriptionId(subscription: PushSubscription) {
     const endpoint = new URL(subscription.endpoint).href;

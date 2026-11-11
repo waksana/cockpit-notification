@@ -388,10 +388,24 @@ STOP 时等待任务取消、SENDING 请求尽力中止，随后其内存对象�
 已发出请求是否被平台受理可能未知，不能报告为“已经撤回”。释放后的回调只丢弃结果，
 不写入新的模块实例。终态不因重复计时器或重复完成回调再次发送。
 
-最小设计不自动重试 UNKNOWN，也不通过无限重试确保送达。
-明确拒绝后的重试、退避和 provider 分类若要加入，必须另行定义，不能默认存在。
+No outcome triggers an automatic retry, including UNKNOWN, 429 or 5xx.
+Failure classification and bounded Retry-After are diagnostics only; retry/backoff
+would require a separately agreed policy.
 这不是 exactly-once 系统通知保证：网络/平台仍可能重复投递，设备按逻辑身份处理，
 所有同 K 的系统通知都应能在核销时被识别。
+
+| Additional input / race | Result |
+| --- | --- |
+| Request construction/encryption fails before transport | FAILED/preparation, no upstream status |
+| HTTP 401/403/429/5xx | FAILED/response with actual status; subscription retained, no replay |
+| HTTP 404/410 for the exact current registration generation | FAILED; quarantine/remove that generation durably; cancel its READY attempts, not unread |
+| Old 404/410 after re-registration, including identical endpoint/keys | FAILED retained as historical diagnosis; new registration and its READY attempts survive |
+| Private storage write fails during invalidation | Registration stays quarantined in memory; explicit persistence-failed diagnosis, no durable-success claim |
+| Later 2xx after earlier rejection | Latest attempt and last-accepted time advance; last failure remains, no READ is inferred |
+| STOP before expiry response completes | No invalidation, new report or follow-on send from the late result |
+
+Safe result fields, history bounds and the settings/API surface are defined in
+[delivery diagnostics](implementation.md#push-failures-and-delivery-diagnostics).
 
 ### 8.3 payload
 

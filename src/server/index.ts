@@ -161,8 +161,11 @@ export function activate(context: ModuleBackendContext, dependencies: BackendDep
         const id = store.register(request.body.subscription, clock.now());
         return { body: { id, generation: ledger.generation, state: ledger.snapshot() } };
       }, true),
-      route('GET', '/subscriptions/:id', request =>
-        ({ body: { registered: store.registered(deviceId(request), clock.now()) } })),
+      route('GET', '/subscriptions/:id', request => {
+        const id = deviceId(request);
+        const delivery = pushes.delivery(id);
+        return { body: { registered: store.registered(id, clock.now()), ...(delivery ? { delivery } : {}) } };
+      }),
       route('DELETE', '/subscriptions/:id', request => {
         const id = deviceId(request);
         store.remove(id);

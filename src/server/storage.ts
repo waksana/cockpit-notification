@@ -23,6 +23,7 @@ export interface Settings {
 }
 export interface Device {
   id: string;
+  generation: string;
   subscription: PushSubscription;
 }
 interface Saved {
@@ -132,6 +133,8 @@ export class SubscriptionStore {
   #saved: Saved;
   #closed = false;
   #devices: Map<string, PushSubscription>;
+  #generations = new Map<string, string>();
+  #invalidated = new Set<string>();
 
   constructor(dataRoot: string, config: Settings) {
     this.#settings = config;
@@ -182,6 +185,7 @@ export class SubscriptionStore {
         }
       }
       this.#devices = new Map(this.#saved.subscriptions.map(subscription => [subscriptionId(subscription), subscription]));
+      for (const id of this.#devices.keys()) this.#generations.set(id, randomUUID());
     } catch (error) {
       if (error instanceof BackendError) throw error;
       throw new BackendError('STORAGE_UNAVAILABLE', 'Notification private configuration could not be loaded', 503);
@@ -255,6 +259,8 @@ export class SubscriptionStore {
     this.#persist(saved);
     this.#saved = saved;
     this.#devices = devices;
+    this.#generations.set(id, randomUUID());
+    this.#invalidated.delete(id);
     return id;
   }
 
@@ -266,13 +272,24 @@ export class SubscriptionStore {
     this.#persist(saved);
     this.#saved = saved;
     this.#devices = devices;
+    this.#generations.delete(id);
+    this.#invalidated.delete(id);
+  }
+
+  invalidate(device: Device): 'removed' | 'superseded' {
+    if (this.#generations.get(device.id) !== device.generation) return 'superseded';
+    // Quarantine even if persistence fails; never keep sending a known-dead registration.
+    this.#invalidated.add(device.id);
+    this.remove(device.id);
+    return 'removed';
   }
 
   active(now: number): Device[] {
-    return [...this.#devices].filter(([, subscription]) =>
-      subscription.expirationTime == null || subscription.expirationTime > now)
+    return [...this.#devices].filter(([id, subscription]) => !this.#invalidated.has(id) &&
+      (subscription.expirationTime == null || subscription.expirationTime > now))
       .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
-      .map(([id, subscription]) => ({ id, subscription: { ...subscription, keys: { ...subscription.keys } } }));
+      .map(([id, subscription]) => ({ id, generation: this.#generations.get(id)!,
+        subscription: { ...subscription, keys: { ...subscription.keys } } }));
   }
 
   registered(id: string, now: number): boolean { return this.active(now).some(device => device.id === id); }
